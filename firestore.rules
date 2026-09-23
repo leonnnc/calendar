@@ -20,7 +20,10 @@ rules_version = '2';
                                     nunca de tu documento privado
      · users/{uid}/calendario       tú, o quien tú invites (con permiso
                                     de ver o de editar)
-     · compartidos/{tú}/{dueño}     la invitación: la escribe el dueño
+     · compartidos/{tú}/recibidos/{dueño}
+                                    la invitación: la escribe el dueño
+                                    (la palabra 'recibidos' es lo que la
+                                    hace una ruta válida de Firestore)
      · visitas                      la puede crear cualquiera (el
                                     contador funciona sin cuenta) y
                                     solo la lee el administrador
