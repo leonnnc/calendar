@@ -487,6 +487,19 @@ ok(/tokenForzado = true;/.test(fbjs) && /tokenForzado = false;/.test(fbjs),
   'Se fuerza el token una sola vez, al entrar');
 ok(/perfilGuardado !== firma/.test(js) && /PERFIL_KEY/.test(js),
   'El perfil no se reescribe si no ha cambiado (era una escritura por carga)');
+/* ---------- 3g. que la app se actualice sola ---------- */
+ok(/fetch\(req, \{ cache: 'reload' \}\)/.test(sw),
+  'La página se revalida siempre con el servidor (GitHub Pages cachea 10 minutos)');
+ok(/addEventListener\('visibilitychange', \(\) => \{ if \(!document\.hidden\) buscar\(\)/.test(js),
+  'Al volver a la app se pregunta si hay versión nueva (una app reanudada nunca navegaba)');
+ok(/setInterval\(buscar, 30 \* 60 \* 1000\)/.test(js), 'También se pregunta cada media hora');
+ok(/addEventListener\('controllerchange'/.test(js) && /location\.reload\(\)/.test(js),
+  'Cuando entra una versión nueva, la app se recarga sola');
+ok(/const editandoAhora = drawDay \|\|/.test(js),
+  'Nunca se recarga en mitad de una edición o de un dibujo');
+ok(!/Ã|Â/.test(sw) && !/Ã|Â/.test(js) && !/Ã|Â/.test(css) && !/Ã|Â/.test(html),
+  'Sin restos de acentos mal codificados (mojibake)');
+
 ok(/window\.__escucha = \{ adjuntado: Date\.now\(\)/.test(js) &&
   /window\.__escucha\.snapshots \+= 1/.test(js),
   'El escucha deja señal de vida (se puede comprobar sin tocar los datos)');

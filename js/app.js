@@ -2600,7 +2600,30 @@ function init() {
 
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Sin service worker:', err));
+      navigator.serviceWorker.register('sw.js')
+        .then((reg) => {
+          /* Una app instalada que sólo se reanuda (no se vuelve a navegar)
+             nunca comprobaba si había versión nueva: seguía con la copia
+             vieja para siempre. Al volver a la app —y cada media hora— se
+             pregunta. */
+          const buscar = () => { try { reg.update(); } catch (e) { /* nada */ } };
+          document.addEventListener('visibilitychange', () => { if (!document.hidden) buscar(); });
+          setInterval(buscar, 30 * 60 * 1000);
+        })
+        .catch((err) => console.warn('Sin service worker:', err));
+    });
+    /* Cuando entra una versión nueva, se recarga sola para no dejarte con la
+       copia vieja… pero nunca en mitad de una edición ni de un dibujo. */
+    let recargando = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (recargando) return;
+      recargando = true;
+      const cuandoToca = () => {
+        const editandoAhora = drawDay || (state.guardadoEn && Date.now() - state.guardadoEn < 5000);
+        if (editandoAhora) { setTimeout(cuandoToca, 2000); return; }
+        location.reload();
+      };
+      cuandoToca();
     });
   }
   console.log('%cCalendario listo', 'color:#2e7d4f;font-weight:600',

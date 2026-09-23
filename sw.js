@@ -1,12 +1,12 @@
 /* ============================================================
-   sw.js â€” service worker del Calendario
-   Estrategia: cache primero con revalidaciÃ³n en segundo plano
-   (stale-while-revalidate), red de respaldo y navegaciÃ³n
+   sw.js — service worker del Calendario
+   Estrategia: cache primero con revalidación en segundo plano
+   (stale-while-revalidate), red de respaldo y navegación
    con la red primero para que las actualizaciones lleguen solas.
    IMPORTANTE: al tocar cualquier archivo de la app, subir VERSION.
    ============================================================ */
 
-const VERSION = 'calendario-v21';
+const VERSION = 'calendario-v23';
 const SHELL = [
   './',
   './index.html',
@@ -39,7 +39,7 @@ self.addEventListener('install', (event) => {
         const res = await fetch(new Request(url, { cache: 'reload' }));
         if (res && res.ok) await cache.put(url, res);
       } catch (err) {
-        // Un recurso que falte no debe romper la instalaciÃ³n.
+        // Un recurso que falte no debe romper la instalación.
       }
     }));
     await self.skipWaiting();
@@ -64,7 +64,10 @@ self.addEventListener('fetch', (event) => {
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        return await fetch(req);
+        /* `reload` revalida siempre con el servidor: sin esto, la caché HTTP
+           del navegador (GitHub Pages manda 10 minutos) puede servir un
+           index.html viejo y parecer que la app no se ha actualizado. */
+        return await fetch(req, { cache: 'reload' });
       } catch (err) {
         const cache = await caches.open(VERSION);
         return (await cache.match('./index.html')) || (await cache.match('./')) || Response.error();
@@ -73,14 +76,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // La configuraciÃ³n de Firebase NO se cachea nunca: si se sirviera una
-  // copia vieja, pegar tus datos no surtirÃ­a efecto y parecerÃ­a roto.
+  // La configuración de Firebase NO se cachea nunca: si se sirviera una
+  // copia vieja, pegar tus datos no surtiría efecto y parecería roto.
   if (url.pathname.endsWith('/js/firebase-config.js')) {
     event.respondWith((async () => {
       try {
         /* no-store: GitHub Pages cachea sus archivos unos 10 minutos, y si no,
-           cambiar la clave del panel (o la configuraciÃ³n) tardarÃ­a en surtir
-           efecto y parecerÃ­a que no funciona. */
+           cambiar la clave del panel (o la configuración) tardaría en surtir
+           efecto y parecería que no funciona. */
         return await fetch(req, { cache: 'no-store' });
       } catch (err) {
         const cache = await caches.open(VERSION);
@@ -90,8 +93,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache primero con revalidaciÃ³n: se responde al instante y, si hay red,
-  // se refresca la copia para la prÃ³xima carga.
+  // Cache primero con revalidación: se responde al instante y, si hay red,
+  // se refresca la copia para la próxima carga.
   event.respondWith((async () => {
     const cache = await caches.open(VERSION);
     const hit = await cache.match(req);
