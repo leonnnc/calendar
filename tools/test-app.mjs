@@ -398,6 +398,58 @@ ok(/let modoIntro = 'entrar'/.test(js), 'La app abre en la bienvenida y el acces
 ok(html.indexOf('intro-tabs') < 0 && js.indexOf('intro-tabs') < 0,
   'Ya no hay pestañas: esa línea de enlaces hace su papel');
 ok(/body\.intro-abierto\{overflow:hidden\}/.test(css), 'Con la entrada delante, el fondo no se desplaza');
+/* Regresión: la etiqueta apilada encima del control hacía que cada fila
+   ocupara dos alturas y los botones parecieran descolgados. */
+ok(/\.field\{display:flex;flex-direction:row;align-items:center/.test(css),
+  'Las etiquetas van en la misma línea que su control (barra de una sola altura)');
+/* Regresión: eran DOS barras (arriba herramientas, abajo meses) y el usuario
+   las veía como dos secciones. Ahora todo va en una sola. */
+ok(/\.topbar\{[\s\S]{0,200}?align-items:center/.test(css), 'La barra única alinea todo al centro');
+ok(html.indexOf('nav-bar') < 0 && css.indexOf('.nav-bar') < 0,
+  'Ya no hay una segunda barra: todo va en una sola sección');
+ok(html.indexOf('nav-spacer') < 0, 'La barra única no necesita separador extra');
+ok(/#nav-hint\{[\s\S]{0,260}?text-overflow:ellipsis/.test(css),
+  'Si falta sitio, el aviso se recorta en vez de partir la barra');
+/* Regresión: con base `auto` el aviso reclamaba el ancho de su texto entero
+   y empujaba «Letra / Imprimir / Datos» a una segunda fila. */
+ok(/#nav-hint\{\s*flex:1 1 0/.test(css), 'El aviso cede sitio antes que partir la barra en dos');
+
+/* ---------- 3d. móvil ---------- */
+ok((css.match(/repeat\(7,minmax\(0,1fr\)\)/g) || []).length >= 2,
+  'Las columnas de la semana pueden encogerse (con `1fr` la hoja desbordaba en móvil)');
+ok(/\.weekdays > span \+ span\{border-left/.test(css),
+  'El borde entre días no se cuela en las etiquetas internas');
+/* Con la misma especificidad a propósito: `.weekdays .dia-corto{display:none}`
+   (0,2,0) le gana a un `.dia-corto{display:inline}` (0,1,0) y la fila de días
+   se quedaba sin una sola etiqueta en móvil. */
+ok(/\.weekdays \.dia-corto\{display:none\}/.test(css) &&
+  /@media \(max-width:720px\)[\s\S]*?\.weekdays \.dia-corto\{display:inline\}/.test(css) &&
+  /@media \(max-width:720px\)[\s\S]*?\.weekdays \.dia-largo\{display:none\}/.test(css),
+  'En móvil se ven las etiquetas cortas de los días (LU, MA, MI…)');
+ok(/dia-corto'/.test(js) && /DAY_ES\[d\]\.slice\(0, 2\)/.test(js),
+  'Cada día trae su etiqueta corta calculada en español');
+ok(/class="weekdays"/.test(html) || /id="weekdays"/.test(html), 'Sigue habiendo fila de días de la semana');
+const movil = (css.match(/@media \(max-width:720px\)\{[\s\S]*?\n\}/) || [''])[0];
+/* Regresión: `overflow-x:hidden` en `html` convierte a html en contenedor de
+   scroll y mata el desplazamiento vertical; con `height:100%` en body, el
+   contenido de debajo del pliegue queda inalcanzable. */
+ok(/body\{overflow-x:hidden\}/.test(movil) && !/html,body\{height:100%\}/.test(css),
+  'En móvil no hay desplazamiento horizontal, y el vertical sigue funcionando');
+ok(/\.brand span\{display:none\}/.test(movil), 'En móvil la barra se queda con el logo');
+ok(/\.topbar \.field-lbl\{display:none\}/.test(css), 'En pantallas estrechas fuera etiquetas de la barra');
+ok(/@media \(max-width:720px\)[\s\S]*?\.cell\{min-height:72px/.test(css),
+  'En móvil las casillas se reducen para que entre el mes completo');
+ok(/@media \(max-width:720px\)[\s\S]*?\.side\{gap:10px;flex-direction:column\}/.test(css),
+  'En móvil las listas van en una columna');
+/* El aviso tiene que caber de verdad: texto corto en pantalla y detalle en
+   el tooltip, o en la barra de una línea se recorta con puntos suspensivos. */
+ok(/hint\.title = largo/.test(js), 'El detalle del aviso va al tooltip');
+ok(/' productos';/.test(js) && /productos por comprar'/.test(js),
+  'El aviso usa texto corto en pantalla y largo en el tooltip');
+ok(html.indexOf('id="sel-month"') > 0 && html.indexOf('id="font-select"') > 0 &&
+  html.indexOf('id="sel-month"') < html.indexOf('id="nav-hint"') &&
+  html.indexOf('id="nav-hint"') < html.indexOf('id="font-select"'),
+  'Los controles del mes y los de la letra comparten la misma barra');
 ok((js.match(/classList\.remove\('intro-abierto'\)/g) || []).length >= 2,
   'Al entrar se vuelve a permitir el desplazamiento');
 ok(/id="panel" class="overlay"/.test(html) && html.indexOf('id="panel-visitas"') > 0 &&

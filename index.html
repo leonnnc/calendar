@@ -35,18 +35,6 @@
       <span>Calendario</span>
     </div>
 
-    <div class="topbar-tools">
-      <label class="field">
-        <span class="field-lbl">Letra</span>
-        <select id="font-select" title="Tipografía manuscrita"></select>
-      </label>
-      <button id="btn-print" class="btn" type="button" title="Imprimir o guardar en PDF">Imprimir</button>
-      <button id="btn-data" class="btn" type="button" title="Tus datos, tu cuenta y los calendarios compartidos">Datos</button>
-      <button id="btn-install" class="btn btn-primary" type="button" hidden>Instalar app</button>
-    </div>
-  </header>
-
-  <nav class="nav-bar" aria-label="Navegación de meses">
     <button id="btn-prev" class="btn btn-icon" type="button" title="Mes anterior">‹</button>
     <label class="field">
       <span class="field-lbl">Mes</span>
@@ -58,9 +46,19 @@
     </label>
     <button id="btn-today" class="btn" type="button">Hoy</button>
     <button id="btn-next" class="btn btn-icon" type="button" title="Mes siguiente">›</button>
-    <span class="nav-spacer"></span>
+
     <span id="nav-hint" class="hint">Haz clic en un día para escribir, o arrastra un icono hasta una fecha</span>
-  </nav>
+
+    <div class="topbar-tools">
+      <label class="field">
+        <span class="field-lbl">Letra</span>
+        <select id="font-select" title="Tipografía manuscrita"></select>
+      </label>
+      <button id="btn-print" class="btn" type="button" title="Imprimir o guardar en PDF">Imprimir</button>
+      <button id="btn-data" class="btn" type="button" title="Tus datos, tu cuenta y los calendarios compartidos">Datos</button>
+      <button id="btn-install" class="btn btn-primary" type="button" hidden>Instalar app</button>
+    </div>
+  </header>
 
   <div class="aviso-compartido" id="compartido-banner" hidden>
     <span id="compartido-txt"></span>

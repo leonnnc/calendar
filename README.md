@@ -160,8 +160,9 @@ llevar su icono (el botón ☺ junto al campo de añadir).
 - un icono se puede **pulsar** (se pega en el día, como antes) o **arrastrar
   hasta una fecha** (queda suelto, para moverlo y agrandarlo).
 
-El catálogo mezcla dos familias: **stickers ilustrados** dibujados en SVG
-(acuarela, mismo aspecto en Windows y macOS) y los **emoji del sistema**.
+El catálogo mezcla dos familias: **74 stickers ilustrados** dibujados en SVG
+(acuarela, mismo aspecto en Windows y macOS) y **429 emoji del sistema**, en 10
+categorías cada una: **503 iconos** en total.
 
 **Datos.** El botón **Datos** permite exportar/importar una copia `.json`,
 exportar el mes a `.ics` (para Google Calendar, Outlook, Apple Calendario) o a

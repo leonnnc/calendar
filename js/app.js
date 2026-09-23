@@ -324,7 +324,14 @@ function renderWeekdays() {
   host.textContent = '';
   const start = state.settings.weekStart ? 1 : 0;
   for (let i = 0; i < 7; i++) {
-    host.append(el('span', null, DAY_EN[(start + i) % 7]));
+    const d = (start + i) % 7;
+    const s = el('span');
+    /* Dos etiquetas por día: la larga (SUNDAY) para pantallas grandes y la
+       corta (DO) para el móvil. El CSS decide cuál se ve; con la larga sola,
+       «WEDNESDAY» no cabe en una columna estrecha y estira toda la hoja. */
+    s.append(el('span', 'dia-largo', DAY_EN[d]));
+    s.append(el('span', 'dia-corto', DAY_ES[d].slice(0, 2).toUpperCase()));
+    host.append(s);
   }
 }
 
@@ -1028,7 +1035,14 @@ function updateHint() {
   const n = Object.keys(state.days).filter(hasContent).length;
   const t = state.todo.filter((i) => !i.done).length;
   const g = state.grocery.filter((i) => !i.done).length;
-  $('#nav-hint').textContent = n + ' día(s) con anotaciones · ' + t + ' tareas pendientes · ' + g + ' productos por comprar';
+  /* Texto corto a propósito: comparte línea con los controles del mes y la
+     tipografía, y si se alargara se recortaría con puntos suspensivos.
+     El detalle completo queda en el tooltip. */
+  const largo = n + ' días con anotaciones · ' + t + ' tareas pendientes · ' +
+    g + ' productos por comprar';
+  const hint = $('#nav-hint');
+  hint.title = largo;
+  hint.textContent = n + ' día(s) · ' + t + ' tareas · ' + g + ' productos';
 }
 
 /* ---------- panel de edición de un día ---------- */

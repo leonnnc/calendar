@@ -26,7 +26,9 @@
 /* Los paneles flotantes se ocultan con el atributo hidden; sin esto,
    cualquier `display` de autor (grid/flex) anula el valor del navegador. */
 [hidden]{display:none !important}
-html,body{height:100%}
+/* Sin `height:100%`: al pedirle ancho fijo más abajo, `body` se volvía el
+   contenedor de desplazamiento y la página dejaba de desplazarse. El fondo
+   se propaga igual a toda la ventana. */
 body{
   margin:0;
   background:
@@ -44,19 +46,28 @@ ul{margin:0;padding:0;list-style:none}
 
 .app{max-width:1500px;margin:0 auto;padding:14px 18px 26px}
 
-/* ---------- barra superior ---------- */
+/* ---------- barra única ----------
+   Todo (mes, año, tipografía, imprimir, datos) vive en UNA sola barra:
+   antes eran dos filas y el usuario las veía como dos secciones. */
 .topbar{
-  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
-  padding:8px 4px 12px;
+  display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  padding:8px 12px;background:#fff;border:1px solid var(--line);
+  border-radius:12px;box-shadow:0 1px 3px rgba(20,40,28,.05);
 }
 .brand{display:flex;align-items:center;gap:9px;font-family:var(--font-ui);
-  font-size:15px;font-weight:600;letter-spacing:.2px;color:var(--green)}
+  font-size:15px;font-weight:600;letter-spacing:.2px;color:var(--green);
+  margin-right:6px;padding-right:11px;border-right:1px solid var(--line)}
 .brand-mark{width:26px;height:26px;flex:0 0 auto}
-.topbar-tools{display:flex;align-items:center;gap:10px;margin-left:auto;flex-wrap:wrap}
+.topbar-tools{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 
-.field{display:flex;flex-direction:column;gap:1px;font-family:var(--font-ui)}
+/* La etiqueta va EN LA MISMA LÍNEA que su control: si se apila encima, la
+   barra ocupa dos alturas y los botones de al lado parecen desalineados. */
+.field{display:flex;flex-direction:row;align-items:center;gap:7px;font-family:var(--font-ui)}
 .field.grow{flex:1 1 160px}
-.field-lbl{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.field-lbl{
+  font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--muted);white-space:nowrap;
+}
 .field select,.field input{
   border:1px solid var(--line);border-radius:9px;background:#fff;
   padding:5px 8px;font-size:14px;min-width:110px;
@@ -79,12 +90,15 @@ ul{margin:0;padding:0;list-style:none}
 .btn-add{font-size:16px;font-weight:700;color:var(--green);border-color:var(--green-line);background:var(--green-soft)}
 .btn[disabled]{opacity:.45;cursor:default}
 
-.nav-bar{
-  display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;
-  padding:9px 12px;background:#fff;border:1px solid var(--line);
-  border-radius:12px;box-shadow:0 1px 3px rgba(20,40,28,.05);
+/* El aviso ocupa el hueco libre a la derecha de los controles; si no cabe,
+   se recorta con puntos suspensivos en vez de partir la barra en dos.
+   Ojo con la base: con `1 1 auto` el aviso reclama el ancho de su texto
+   completo (872 px) y expulsa los botones a una segunda fila. Con base 0
+   sólo recibe lo que sobra, que es justo lo que se quiere. */
+#nav-hint{
+  flex:1 1 0;min-width:0;text-align:right;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-.nav-spacer{flex:1 1 auto}
 .hint{font-family:var(--font-ui);font-size:12.5px;color:var(--muted)}
 
 /* ---------- tablero ---------- */
@@ -118,14 +132,23 @@ ul{margin:0;padding:0;list-style:none}
 .head-sticker{width:62px;height:62px;flex:0 0 auto;cursor:pointer;display:grid;place-items:center}
 .head-sticker svg,.head-sticker .emo{width:100%;height:100%;font-size:44px;line-height:1}
 
-.weekdays{display:grid;grid-template-columns:repeat(7,1fr);border-top:1px solid var(--green-line);border-bottom:2px solid var(--green)}
-.weekdays span{
-  font-family:var(--font-ui);font-size:11.5px;font-weight:600;letter-spacing:.11em;
-  text-transform:uppercase;color:var(--green);text-align:center;padding:5px 2px;background:var(--green-soft);
+/* minmax(0,1fr) y no 1fr: con `1fr` la columna nunca baja de su contenido
+   mínimo («WEDNESDAY») y en un móvil la fila entera desborda la pantalla. */
+.weekdays{
+  display:grid;grid-template-columns:repeat(7,minmax(0,1fr));
+  border-top:1px solid var(--green-line);border-bottom:2px solid var(--green);
 }
-.weekdays span + span{border-left:1px solid var(--green-line)}
+.weekdays > span{
+  font-family:var(--font-ui);font-size:11.5px;font-weight:600;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--green);text-align:center;padding:5px 2px;
+  background:var(--green-soft);min-width:0;overflow:hidden;
+}
+/* Solo el borde entre columnas; los > evitan que la etiqueta corta de dentro
+   herede el borde del vecino. */
+.weekdays > span + span{border-left:1px solid var(--green-line)}
+.weekdays .dia-corto{display:none}
 
-.grid{display:grid;grid-template-columns:repeat(7,1fr);border-left:1px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-left:1px solid var(--line)}
 .cell{
   position:relative;min-height:118px;padding:24px 6px 6px;overflow:hidden;
   border-right:1px solid var(--line);border-bottom:1px solid var(--line);
@@ -320,7 +343,7 @@ ul{margin:0;padding:0;list-style:none}
 .st-cell.recent{position:relative}
 
 /* ---------- datos ---------- */
-.data-row{display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end}
+.data-row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 .data-row .btn{flex:1 1 auto;justify-content:center;text-align:center}
 hr{border:none;border-top:1px solid var(--line);margin:4px 0}
 
@@ -335,17 +358,100 @@ hr{border:none;border-top:1px solid var(--line);margin:4px 0}
   padding:9px 16px;border-radius:999px;box-shadow:0 10px 26px rgba(0,0,0,.28);
 }
 
-/* ---------- aviso de instalación ---------- */
+/* ============================================================
+   Móvil y pantallas estrechas
+   ============================================================ */
+
+/* Antes de apilar controles, fuera etiquetas de LA BARRA: el propio control
+   ya dice qué es (un mes, un año, una tipografía). En los formularios del
+   panel las etiquetas se quedan, que ahí sí hacen falta. */
+@media (max-width:1000px){
+  .topbar .field-lbl{display:none}
+  .brand{margin-right:0;padding-right:0;border-right:none}
+}
+
 @media (max-width:1180px){
   .board{grid-template-columns:minmax(0,1fr)}
   .side{position:static;flex-direction:row;flex-wrap:wrap}
   .side .card{flex:1 1 300px}
 }
+
+/* ---------- móvil ---------- */
 @media (max-width:720px){
-  .app{padding:10px}
-  .cell{min-height:88px;padding:20px 4px 4px}
-  .month-script,.month-name{font-size:26px}
-  .side{flex-direction:column}
+  /* Solo en `body`: en `html` convertiría a html en contenedor de scroll y
+     el desplazamiento vertical de la página se pierde. */
+  body{overflow-x:hidden}
+  .app{padding:8px 8px 16px}
+
+  /* barra: logo, mes y año, y los botones en su propia línea */
+  .topbar{gap:6px;padding:7px 9px}
+  .brand span{display:none}
+  .brand-mark{width:24px;height:24px}
+  .field{gap:4px}
+  .field select,.field input{min-width:0;padding:4px 6px;font-size:13px;border-radius:8px}
+  #sel-month{max-width:96px}
+  #sel-year{max-width:72px}
+  #font-select{max-width:138px}
+  .btn{padding:6px 9px;font-size:12.5px}
+  .btn-icon{padding:6px 8px}
+  #btn-data{max-width:124px}
+  .topbar-tools{flex:1 1 100%;justify-content:space-between}
+  #nav-hint{flex:1 1 100%;text-align:center;font-size:11px;padding-top:1px}
+
+  /* hoja y cuadrícula: todo el mes tiene que verse de una vez */
+  .board{margin-top:10px;gap:10px}
+  .sheet{padding:9px 8px 8px;border-width:2px;border-radius:12px}
+  .sheet-head{gap:8px;padding:0 0 8px}
+  .month-script,.month-name{font-size:22px}
+  .goal-label{font-size:9.5px;letter-spacing:.12em}
+  .goal-text{font-size:17px;padding:0 4px}
+  .head-sticker{width:40px;height:40px}
+  .head-sticker svg,.head-sticker .emo{font-size:30px}
+  .weekdays > span{font-size:10px;letter-spacing:.05em;padding:4px 1px}
+  /* Con la misma especificidad que la regla que las oculta: si no,
+     `.weekdays .dia-corto` (0,2,0) gana y la fila queda sin etiquetas. */
+  .weekdays .dia-largo{display:none}
+  .weekdays .dia-corto{display:inline}
+  .cell{min-height:72px;padding:17px 3px 3px}
+  .cell .num{font-size:1rem;top:1px;left:4px}
+  .cell .add{width:20px;height:20px;font-size:13px;top:1px;right:1px}
+  .cell-items{gap:1px}
+  .chip{font-size:.92rem;gap:3px}
+  .chip .st{width:19px;height:19px}
+  .chip .st.emo{font-size:.95rem}
+  .sticker-grip{width:18px;height:18px;right:0;bottom:0}
+  .ink{left:1px;top:10px;width:calc(100% - 2px);height:calc(100% - 12px)}
+
+  /* pie de la hoja */
+  .sheet-foot{gap:8px;padding:6px 0 0}
+  .notes-text{font-size:.98rem;min-height:2.4em}
+  .cheer-text{font-size:20px}
+  .cheer-sticker{width:38px;height:38px}
+  .cheer-sticker svg,.cheer-sticker .emo{font-size:28px}
+  .foot-label{font-size:9.5px;letter-spacing:.12em}
+
+  /* listas y paneles flotantes */
+  .side{gap:10px;flex-direction:column}
+  .card{padding:10px;border-width:2px}
+  .card-title{font-size:1.15rem;padding:1px 14px}
+  .popover{width:min(296px,calc(100vw - 16px))}
+  .picker-panel{max-height:92vh}
+  .picker-foot{padding:8px 12px}
+  .drawbar{gap:6px;padding:6px 8px 6px 12px;font-size:11.5px}
+  .sticker-bar{gap:6px;padding:6px 8px;font-size:11.5px}
+  .sbar-name{max-width:104px}
+  .st-cell .lbl{font-size:9.5px}
+}
+
+/* Teléfonos pequeños: que la fila de botones no se parta en dos. */
+@media (max-width:420px){
+  .btn{padding:6px 7px;font-size:12px}
+  .btn-icon{padding:6px 7px}
+  #font-select{max-width:112px}
+  #btn-data{max-width:104px}
+  #sel-month{max-width:88px}
+  #sel-year{max-width:66px}
+  #nav-hint{font-size:10.5px}
 }
 
 /* ---------- textos editables vacíos ---------- */
@@ -600,7 +706,7 @@ body.mirando-compartido #grid .cell .add{display:none}
 @media print{
   @page{size:A4 landscape;margin:8mm}
   body{background:#fff}
-  .topbar,.nav-bar,.side,.foot-note,.cell .add,.toast,.drawbar,
+  .topbar,.side,.foot-note,.cell .add,.toast,.drawbar,
   .sticker-bar,.icon-ghost,.sticker-grip,.intro,.aviso-compartido{display:none !important}
   .sticker.sel .sticker-box{outline:none}
   .cell.drawing{box-shadow:none}
