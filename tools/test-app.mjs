@@ -475,6 +475,23 @@ ok(pasosCarga.length >= 7, 'La carga informa de varios pasos (no se queda en uno
   pasosCarga.length + ' pasos');
 ok(/avisarCarga\(40, 'Conectando con la nube…'\)[\s\S]{0,80}?Nube\.init\(\)/.test(js),
   'El paso más lento (bajar el SDK) se anuncia antes de empezarlo');
+ok(/function avanzarSola\(\)/.test(js) && /cargaTecho = Math\.min\(cargaPct \+ 8, 96\)/.test(js),
+  'La barra avanza sola mientras espera, sin llegar al 100 % por su cuenta');
+ok(/clearTimeout\(cargaTic\);\s*\/\/ el avance automático ya no tiene sentido/.test(js),
+  'Al terminar, el avance automático se detiene');
+
+/* ---------- 3f. menos viajes a Firebase ---------- */
+ok(/getIdToken\(fb\.auth\.currentUser, !tokenForzado\)/.test(fbjs),
+  'El token se pide de la caché, no forzando una vuelta a Google en cada operación');
+ok(/tokenForzado = true;/.test(fbjs) && /tokenForzado = false;/.test(fbjs),
+  'Se fuerza el token una sola vez, al entrar');
+ok(/perfilGuardado !== firma/.test(js) && /PERFIL_KEY/.test(js),
+  'El perfil no se reescribe si no ha cambiado (era una escritura por carga)');
+ok(/window\.__escucha = \{ adjuntado: Date\.now\(\)/.test(js) &&
+  /window\.__escucha\.snapshots \+= 1/.test(js),
+  'El escucha deja señal de vida (se puede comprobar sin tocar los datos)');
+ok(/setTimeout\(\(\) => \{[\s\S]{0,120}?Nube\.escucharCalendario\(u\.uid, alLlegarRemoto\);\s*\}, 600\)/.test(js),
+  'El escucha en tiempo real se engancha después de la cortina, no compitiendo con ella');
 ok(/remoto\.guardadoEn = tNube;/.test(js),
   'Al adoptar la copia de la nube se sella con su hora (si no, se queda en 0 y gana siempre)');
 ok(/else if \(tLocal > tNube\)/.test(js),

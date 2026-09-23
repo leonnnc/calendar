@@ -24,6 +24,9 @@ const esc = (s) => String(s == null ? '' : s)
 
 /* ---------- constantes ---------- */
 const STORE_KEY = 'calendario-borrado-v1';
+/* Recuerda lo último que se subió del perfil, para no reescribirlo en cada
+   carga (cada escritura a Firestore cuesta ~0,5 s). */
+const PERFIL_KEY = 'calendario-perfil-v1:';
 /* Con cuentas, cada persona tiene su propio cajón: la clave del almacén
    lleva su uid. «local» es el cajón de quien usa la app sin cuenta. */
 let dueno = 'local';
@@ -1557,23 +1560,45 @@ function nubeLista() { return Nube.configurado(); }
 /* ---------- pantalla de carga ---------- */
 let cargaFuera = 0;
 let cargaPct = 0;
-/* La barra nunca retrocede: los pasos vienen de sitios distintos y alguno
-   avisa con un número menor, así que solo se acepta lo que sube. */
-function avisarCarga(pct, txt) {
+let cargaTecho = 0;
+let cargaTic = 0;
+
+function pintarCarga() {
   const relleno = $('#carga-relleno');
   if (!relleno) return;
-  cargaPct = Math.max(cargaPct, Math.max(0, Math.min(100, pct)));
   relleno.style.width = cargaPct + '%';
   const barra = $('#carga-barra');
   if (barra) barra.setAttribute('aria-valuenow', String(Math.round(cargaPct)));
   const p = $('#carga-pct');
   if (p) p.textContent = Math.round(cargaPct) + '%';
+}
+
+/* Cada paso espera a la red (ida y vuelta a los servidores de Google, 250-500
+   ms aquí). Mientras espera, la barra sube sola de uno en uno hasta un techo
+   cercano, nunca hasta el 100 %: si no, se queda clavada y parece colgada. */
+function avanzarSola() {
+  if (cargaPct >= cargaTecho) return;
+  cargaPct += 1;
+  pintarCarga();
+  cargaTic = setTimeout(avanzarSola, 850);
+}
+
+/* La barra nunca retrocede: los pasos vienen de sitios distintos y alguno
+   avisa con un número menor, así que solo se acepta lo que sube. */
+function avisarCarga(pct, txt) {
+  if (!$('#carga-relleno')) return;
+  cargaPct = Math.max(cargaPct, Math.max(0, Math.min(100, pct)));
+  cargaTecho = Math.min(cargaPct + 8, 96);
+  pintarCarga();
   if (txt) { const t = $('#carga-paso'); if (t) t.textContent = txt; }
+  clearTimeout(cargaTic);
+  cargaTic = setTimeout(avanzarSola, 700);
 }
 /* Sube hasta el 100 %, deja ver el final y retira la cortina. */
 function finCarga() {
   clearTimeout(cargaFuera);
   avisarCarga(100, 'Listo');
+  clearTimeout(cargaTic);      // el avance automático ya no tiene sentido
   cargaFuera = setTimeout(() => {
     const caja = $('#carga');
     if (!caja) return;
@@ -1700,14 +1725,32 @@ async function entrarApp(u) {
     avisarCarga(40, 'Entrando en tu cuenta…');
   }
   state = load();
-  /* Cada paso se anuncia ANTES de su espera: si no, la barra se queda con el
-     texto viejo mientras trabaja (la escritura del perfil puede tardar). */
-  avisarCarga(78, 'Abriendo tu cuenta…');
-  try { await Nube.guardarPerfil({ alias: u.alias || '', correo: u.correo || '' }); } catch (e) { /* nada */ }
+  /* El perfil solo se reescribe si de verdad cambió: era una escritura en
+     cada carga y cada vuelta a Firestore cuesta ~0,5 s. */
+  const firma = (u.alias || '') + '|' + (u.correo || '');
+  let perfilGuardado = '';
+  try { perfilGuardado = localStorage.getItem(PERFIL_KEY + u.uid) || ''; } catch (e) { /* nada */ }
+  if (perfilGuardado !== firma) {
+    /* Cada paso se anuncia ANTES de su espera: si no, la barra se queda con
+       el texto viejo mientras trabaja. */
+    avisarCarga(78, 'Abriendo tu cuenta…');
+    try {
+      await Nube.guardarPerfil({ alias: u.alias || '', correo: u.correo || '' });
+      try { localStorage.setItem(PERFIL_KEY + u.uid, firma); } catch (e) { /* nada */ }
+    } catch (e) { /* nada */ }
+  } else {
+    avisarCarga(78, 'Abriendo tu cuenta…');
+  }
   avisarCarga(84, 'Bajando tu calendario…');
   try { await bajarNube(u.uid); } catch (err) { toast(Nube.mensaje(err)); }
   avisarCarga(92, 'Preparando el mes…');
-  Nube.escucharCalendario(u.uid, (doc) => {
+  const alLlegarRemoto = (doc) => {
+    /* Señal de vida del escucha en vivo: sirve para comprobar desde fuera si
+       la sincronización está conectada, sin tocar ningún dato. */
+    if (window.__escucha) {
+      window.__escucha.snapshots += 1;
+      window.__escucha.ultimo = Date.now();
+    }
     if (aplicandoRemoto || !doc || !doc.estado) return;
     if (Date.now() - ultimoSubido < 5000) return;    // es lo que acabamos de subir
     const remoto = normalizar(doc.estado);
@@ -1716,7 +1759,13 @@ async function entrarApp(u) {
     if ((remoto.guardadoEn || doc.actualizado || 0) <= (state.guardadoEn || 0)) return;
     ponEstadoRemoto(remoto);
     renderSheet(); updateHint(); storageInfo();
-  });
+  };
+  /* El escucha en tiempo real se engancha DESPUÉS de quitar la cortina: sus
+     canales competían con la descarga y alargaban justo ese tramo. */
+  setTimeout(() => {
+    window.__escucha = { adjuntado: Date.now(), snapshots: 0, uid: u.uid };
+    Nube.escucharCalendario(u.uid, alLlegarRemoto);
+  }, 600);
   $('#intro').hidden = true;
   pintarCuenta(Nube.estado());
   renderSheet(); updateHint(); storageInfo();

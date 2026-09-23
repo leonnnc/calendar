@@ -1,12 +1,12 @@
 /* ============================================================
-   sw.js — service worker del Calendario
-   Estrategia: cache primero con revalidación en segundo plano
-   (stale-while-revalidate), red de respaldo y navegación
+   sw.js â€” service worker del Calendario
+   Estrategia: cache primero con revalidaciÃ³n en segundo plano
+   (stale-while-revalidate), red de respaldo y navegaciÃ³n
    con la red primero para que las actualizaciones lleguen solas.
    IMPORTANTE: al tocar cualquier archivo de la app, subir VERSION.
    ============================================================ */
 
-const VERSION = 'calendario-v19';
+const VERSION = 'calendario-v21';
 const SHELL = [
   './',
   './index.html',
@@ -39,7 +39,7 @@ self.addEventListener('install', (event) => {
         const res = await fetch(new Request(url, { cache: 'reload' }));
         if (res && res.ok) await cache.put(url, res);
       } catch (err) {
-        // Un recurso que falte no debe romper la instalación.
+        // Un recurso que falte no debe romper la instalaciÃ³n.
       }
     }));
     await self.skipWaiting();
@@ -73,14 +73,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // La configuración de Firebase NO se cachea nunca: si se sirviera una
-  // copia vieja, pegar tus datos no surtiría efecto y parecería roto.
+  // La configuraciÃ³n de Firebase NO se cachea nunca: si se sirviera una
+  // copia vieja, pegar tus datos no surtirÃ­a efecto y parecerÃ­a roto.
   if (url.pathname.endsWith('/js/firebase-config.js')) {
     event.respondWith((async () => {
       try {
         /* no-store: GitHub Pages cachea sus archivos unos 10 minutos, y si no,
-           cambiar la clave del panel (o la configuración) tardaría en surtir
-           efecto y parecería que no funciona. */
+           cambiar la clave del panel (o la configuraciÃ³n) tardarÃ­a en surtir
+           efecto y parecerÃ­a que no funciona. */
         return await fetch(req, { cache: 'no-store' });
       } catch (err) {
         const cache = await caches.open(VERSION);
@@ -90,8 +90,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache primero con revalidación: se responde al instante y, si hay red,
-  // se refresca la copia para la próxima carga.
+  // Cache primero con revalidaciÃ³n: se responde al instante y, si hay red,
+  // se refresca la copia para la prÃ³xima carga.
   event.respondWith((async () => {
     const cache = await caches.open(VERSION);
     const hit = await cache.match(req);

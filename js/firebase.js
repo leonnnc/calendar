@@ -131,6 +131,7 @@ export function init() {
       authMod.onAuthStateChanged(fb.auth, async (u) => {
         st.usuario = u ? { uid: u.uid, correo: u.email || '', alias: u.displayName || '' } : null;
         st.sesionLeida = true;      // ya sabemos si había sesión guardada o no
+        tokenForzado = false;       // con cada sesión nueva se fuerza una vez
         if (u) { await refrescarToken(); st.error = ''; }
         avisar();
       });
@@ -150,12 +151,18 @@ export function init() {
 /* Sin esto, la primera lectura puede salir antes de que el token de
    sesión llegue a Firestore y responder «permiso denegado» aunque las
    reglas estén bien. */
+let tokenForzado = false;
 async function refrescarToken() {
   try {
     const { authMod } = fb.mod;
-    if (fb.auth && authMod && authMod.getIdToken && fb.auth.currentUser) {
-      await authMod.getIdToken(fb.auth.currentUser, true);
-    }
+    if (!fb.auth || !authMod || !authMod.getIdToken || !fb.auth.currentUser) return;
+    /* getIdToken(usuario, true) OBLIGA una ida y vuelta a los servidores de
+       Google: medido, 250-350 ms por operación, y había cuatro por carga.
+       Sin el `true` se usa el token que ya está en memoria y Firebase lo
+       renueva solo cuando le queda poco. Solo se fuerza la primera vez tras
+       entrar, que es cuando Firestore podría no tenerlo todavía. */
+    await authMod.getIdToken(fb.auth.currentUser, !tokenForzado);
+    tokenForzado = true;
   } catch (e) { /* nada */ }
 }
 
