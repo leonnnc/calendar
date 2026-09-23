@@ -34,6 +34,7 @@ const oyentes = [];
 const st = {
   listo: false,
   cargando: false,
+  sesionLeida: false, // ya sabemos si había sesión guardada (o ninguna)
   usuario: null,      // { uid, correo, alias }
   error: '',
   codigo: '',
@@ -79,6 +80,23 @@ export function onCambio(fn) {
     if (i >= 0) oyentes.splice(i, 1);
   };
 }
+
+/* Espera a saber si había sesión guardada. Es lo que decide si se abre el
+   calendario directamente o se pide la contraseña: sin esto, la entrada
+   aparecía un instante antes de que Firebase restaurara la sesión. */
+export function esperarSesion(limiteMs) {
+  return new Promise((resolve) => {
+    if (!configurado()) { resolve(null); return; }
+    if (st.sesionLeida) { resolve(st.usuario); return; }
+    const t0 = Date.now();
+    const mirar = () => {
+      if (st.sesionLeida) { resolve(st.usuario); return; }
+      if (Date.now() - t0 > (limiteMs || 6000)) { resolve(st.usuario); return; }
+      setTimeout(mirar, 100);
+    };
+    mirar();
+  });
+}
 function avisar() {
   const e = estado();
   oyentes.forEach((f) => { try { f(e); } catch (err) { /* nada */ } });
@@ -112,6 +130,7 @@ export function init() {
       st.listo = true; st.cargando = false;
       authMod.onAuthStateChanged(fb.auth, async (u) => {
         st.usuario = u ? { uid: u.uid, correo: u.email || '', alias: u.displayName || '' } : null;
+        st.sesionLeida = true;      // ya sabemos si había sesión guardada o no
         if (u) { await refrescarToken(); st.error = ''; }
         avisar();
       });

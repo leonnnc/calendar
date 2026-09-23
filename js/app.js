@@ -90,6 +90,10 @@ function uid() {
 /* ---------- estado ---------- */
 const DEF = {
   v: 1,
+  /* Cuándo se tocó por última vez este calendario. Sirve para decidir, al
+     abrir, si manda el de este equipo o el de la nube: gana el más nuevo,
+     sin preguntar nada al usuario. */
+  guardadoEn: 0,
   settings: {
     font: 'Caveat',
     ink: '#17512f',
@@ -116,6 +120,7 @@ function normalizar(data) {
   const s = clone(DEF);
   if (!data || typeof data !== 'object') return s;
   s.v = data.v || 1;
+  s.guardadoEn = Number(data.guardadoEn) || 0;
   Object.assign(s.settings, data.settings || {});
   s.settings.collapsed = Object.assign({ todo: false, grocery: false }, (data.settings || {}).collapsed || {});
   s.days = (data.days && typeof data.days === 'object') ? data.days : {};
@@ -169,6 +174,7 @@ function normStickers() {
 let saveTimer = 0;
 function save() {
   if (soloLectura) return;      // el calendario de otra persona no se toca
+  state.guardadoEn = Date.now();   // marca de la última edición en este equipo
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
@@ -1548,6 +1554,38 @@ let panelFilas = [];
 
 function nubeLista() { return Nube.configurado(); }
 
+/* ---------- pantalla de carga ---------- */
+let cargaFuera = 0;
+let cargaPct = 0;
+/* La barra nunca retrocede: los pasos vienen de sitios distintos y alguno
+   avisa con un número menor, así que solo se acepta lo que sube. */
+function avisarCarga(pct, txt) {
+  const relleno = $('#carga-relleno');
+  if (!relleno) return;
+  cargaPct = Math.max(cargaPct, Math.max(0, Math.min(100, pct)));
+  relleno.style.width = cargaPct + '%';
+  const barra = $('#carga-barra');
+  if (barra) barra.setAttribute('aria-valuenow', String(Math.round(cargaPct)));
+  const p = $('#carga-pct');
+  if (p) p.textContent = Math.round(cargaPct) + '%';
+  if (txt) { const t = $('#carga-paso'); if (t) t.textContent = txt; }
+}
+/* Sube hasta el 100 %, deja ver el final y retira la cortina. */
+function finCarga() {
+  clearTimeout(cargaFuera);
+  avisarCarga(100, 'Listo');
+  cargaFuera = setTimeout(() => {
+    const caja = $('#carga');
+    if (!caja) return;
+    caja.classList.add('fuera');
+    setTimeout(() => {
+      caja.hidden = true;
+      /* Si la entrada está a la vista, el fondo sigue bloqueado. */
+      if ($('#intro').hidden) document.body.classList.remove('intro-abierto');
+    }, 260);
+  }, 320);
+}
+
 function guardarLocal() {
   try { localStorage.setItem(storeKey(dueno), JSON.stringify(state)); } catch (e) { /* nada */ }
 }
@@ -1574,35 +1612,45 @@ async function subirNubeAhora() {
   }
 }
 
-/* Trae lo que hay en la nube. Si los dos lados tienen contenido se
-   pregunta antes de pisar nada. */
+function ponEstadoRemoto(remoto) {
+  aplicandoRemoto = true;
+  state = remoto;
+  guardarLocal();
+  aplicandoRemoto = false;
+}
+
+function tieneCosas(s) {
+  return !!(Object.keys(s.days).length || s.todo.length || s.grocery.length);
+}
+
+/* Trae lo que hay en la nube. No se pregunta nada: gana la versión más
+   reciente (marca `guardadoEn`), y si la de la nube pisa algo de este
+   equipo, se guarda antes una copia aparte por si acaso. */
 async function bajarNube(uid) {
   const datos = await Nube.leerCalendario(uid);
   if (!datos || !datos.estado) return false;
   const remoto = normalizar(datos.estado);
-  const mioTiene = Object.keys(state.days).length || state.todo.length || state.grocery.length;
-  const suyoTiene = Object.keys(remoto.days).length || remoto.todo.length || remoto.grocery.length;
-  if (!suyoTiene) return false;
-  if (!mioTiene) {
-    aplicandoRemoto = true;
-    state = remoto;
-    guardarLocal();
-    aplicandoRemoto = false;
-    return true;
+  if (!tieneCosas(remoto)) return false;          // la nube está vacía: manda la de aquí
+  const tNube = remoto.guardadoEn || datos.actualizado || 0;
+  const tLocal = state.guardadoEn || 0;
+  /* Se sella con la hora de la nube aunque el documento venga sin marca (las
+     copias guardadas antes de que existiera `guardadoEn`), si no la de este
+     equipo se quedaría en 0 y la nube ganaría en cada carga. */
+  remoto.guardadoEn = tNube;
+  if (!tieneCosas(state)) { ponEstadoRemoto(remoto); return true; }
+  if (tNube > tLocal) {
+    /* Solo se guarda copia si de verdad cambia algo. */
+    try {
+      if (JSON.stringify(state) !== JSON.stringify(remoto)) {
+        localStorage.setItem(storeKey(dueno) + ':copia-local', JSON.stringify(state));
+      }
+    } catch (e) { /* nada */ }
+    ponEstadoRemoto(remoto);
+    toast('Abierto el calendario más reciente de tu cuenta');
+  } else if (tLocal > tNube) {
+    await subirNubeAhora();                      // el de este equipo es más nuevo
   }
-  const usarNube = window.confirm(
-    'Tu cuenta ya tiene un calendario guardado en la nube.\n\n' +
-    'Aceptar = abrir el de la nube (el de este equipo se guarda aparte, como copia).\n' +
-    'Cancelar = quedarte con el de este equipo y subirlo a la nube.');
-  if (usarNube) {
-    try { localStorage.setItem(storeKey(dueno) + ':copia-local', JSON.stringify(state)); } catch (e) { /* nada */ }
-    aplicandoRemoto = true;
-    state = remoto;
-    guardarLocal();
-    aplicandoRemoto = false;
-  } else {
-    await subirNubeAhora();
-  }
+  /* Si las dos marcas coinciden, ya está todo sincronizado: no se toca nada. */
   return true;
 }
 
@@ -1642,22 +1690,38 @@ async function entrarApp(u) {
   mirandoA = null;
   document.body.classList.remove('mirando-compartido');
   $('#compartido-banner').hidden = true;
+  /* Si venimos del formulario de entrada, la cortina de carga vuelve: iniciar
+     sesión tarda y conviene ver que algo avanza, no una pantalla congelada. */
+  if (!$('#intro').hidden) {
+    const caja = $('#carga');
+    caja.hidden = false;
+    caja.classList.remove('fuera');
+    document.body.classList.add('intro-abierto');
+    avisarCarga(40, 'Entrando en tu cuenta…');
+  }
   state = load();
+  /* Cada paso se anuncia ANTES de su espera: si no, la barra se queda con el
+     texto viejo mientras trabaja (la escritura del perfil puede tardar). */
+  avisarCarga(78, 'Abriendo tu cuenta…');
   try { await Nube.guardarPerfil({ alias: u.alias || '', correo: u.correo || '' }); } catch (e) { /* nada */ }
+  avisarCarga(84, 'Bajando tu calendario…');
   try { await bajarNube(u.uid); } catch (err) { toast(Nube.mensaje(err)); }
+  avisarCarga(92, 'Preparando el mes…');
   Nube.escucharCalendario(u.uid, (doc) => {
     if (aplicandoRemoto || !doc || !doc.estado) return;
     if (Date.now() - ultimoSubido < 5000) return;    // es lo que acabamos de subir
-    aplicandoRemoto = true;
-    state = normalizar(doc.estado);
-    guardarLocal();
-    aplicandoRemoto = false;
+    const remoto = normalizar(doc.estado);
+    /* Solo se adopta si de verdad es más nuevo: así una copia vieja de la
+       nube nunca pisa lo que acabas de escribir aquí. */
+    if ((remoto.guardadoEn || doc.actualizado || 0) <= (state.guardadoEn || 0)) return;
+    ponEstadoRemoto(remoto);
     renderSheet(); updateHint(); storageInfo();
   });
   $('#intro').hidden = true;
-  document.body.classList.remove('intro-abierto');
   pintarCuenta(Nube.estado());
   renderSheet(); updateHint(); storageInfo();
+  avisarCarga(97, 'Casi listo…');
+  finCarga();
 }
 
 async function salirApp() {
@@ -2424,6 +2488,10 @@ window.addEventListener('appinstalled', () => {
 
 /* ---------- arranque ---------- */
 function init() {
+  /* La cortina de carga ya se ve desde el primer pintado; aquí solo se
+     bloquea el fondo y se empieza a informar del avance. */
+  document.body.classList.add('intro-abierto');
+  avisarCarga(8, 'Preparando…');
   applyFont(state.settings.font);
   fillFontSelect();
   fillNav();
@@ -2437,6 +2505,7 @@ function init() {
   renderSheet();
   updateHint();
   storageInfo();
+  avisarCarga(30, 'Montando el mes…');
 
   /* --- cuentas y nube --- */
   pintarCuenta(Nube.estado());
@@ -2447,12 +2516,35 @@ function init() {
     if (e.usuario && !miUid) entrarApp(e.usuario).catch((err) => toast(Nube.mensaje(err)));
   });
   if (nubeLista()) {
-    Nube.init().catch((err) => toast(Nube.mensaje(err)));
-    /* Un instante de margen: si ya había sesión, no llega a verse la entrada. */
-    setTimeout(() => { if (!miUid && $('#intro').hidden) abrirIntro(); }, 700);
+    /* No se decide nada hasta saber si había sesión guardada: así, al
+       recargar o al volver a abrir la app, se entra directo al calendario y
+       la pantalla de acceso solo sale si de verdad no hay sesión (o si se
+       ha pulsado «Cerrar sesión»). */
+    /* Lo más lento es bajar el SDK de Firebase desde su CDN, así que ese paso
+       se anuncia ANTES de empezar, no después. */
+    avisarCarga(40, 'Conectando con la nube…');
+    Nube.init()
+      .then(async () => {
+        avisarCarga(62, 'Comprobando tu sesión…');
+        const u = await Nube.esperarSesion(6000);
+        if (u) await entrarApp(u);
+        else { finCarga(); abrirIntro(); }
+      })
+      .catch((err) => {
+        finCarga();
+        abrirIntro();
+        toast(Nube.mensaje(err));
+      });
   } else {
+    avisarCarga(60, 'Modo local');
+    finCarga();
     abrirIntro();
   }
+
+  /* Red de seguridad: la cortina de carga no se queda puesta nunca. */
+  setTimeout(() => {
+    if (!$('#carga').hidden && !miUid && $('#intro').hidden) { finCarga(); abrirIntro(); }
+  }, 12000);
 
   /* Contador de visitas (y la IP, si Firebase está configurado). */
   Nube.registrarVisita('').catch(() => { /* no es crítico */ });

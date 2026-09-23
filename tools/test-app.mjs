@@ -441,6 +441,52 @@ ok(/@media \(max-width:720px\)[\s\S]*?\.cell\{min-height:72px/.test(css),
   'En móvil las casillas se reducen para que entre el mes completo');
 ok(/@media \(max-width:720px\)[\s\S]*?\.side\{gap:10px;flex-direction:column\}/.test(css),
   'En móvil las listas van en una columna');
+
+/* ---------- 3e. pantalla de carga, sesión y sincronización ---------- */
+ok(html.indexOf('id="carga"') > 0 && html.indexOf('id="carga-relleno"') > 0 &&
+  html.indexOf('id="carga-pct"') > 0 && html.indexOf('id="carga-paso"') > 0,
+  'Hay pantalla de carga con barra, porcentaje y texto del paso');
+ok(/<div id="carga" class="carga">/.test(html),
+  'La cortina se ve desde el primer pintado (nada de ver el calendario a medias)');
+ok(/\.carga-relleno\{[\s\S]{0,220}?width:0/.test(css), 'La barra de carga empieza en 0 %');
+ok(/function avisarCarga\(pct, txt\)/.test(js) && /function finCarga\(\)/.test(js),
+  'La carga informa del avance y sabe retirarse');
+ok(/Nube\.esperarSesion\(/.test(js) && /function esperarSesion/.test(fbjs) && /sesionLeida/.test(fbjs),
+  'No se decide si mostrar la entrada hasta saber si había sesión guardada');
+/* El diálogo salía en CADA carga porque `bajarNube` preguntaba si pisar los
+   datos. Los confirm() que quedan son los de acciones destructivas (vaciar un
+   día, borrar todo, importar), que sí deben preguntar. */
+const bajarNubeSrc = (js.match(/async function bajarNube[\s\S]*?\n\}/) || [''])[0];
+ok(bajarNubeSrc.length > 0 && bajarNubeSrc.indexOf('confirm') < 0,
+  'Al abrir no se pregunta nada (fuera el diálogo que salía en cada carga)');
+ok(/state\.guardadoEn = Date\.now\(\)/.test(js), 'Cada edición marca la hora del último cambio');
+ok(/remoto\.guardadoEn \|\| datos\.actualizado/.test(js),
+  'Al abrir, gana la versión más reciente (sin preguntar)');
+ok(/if \(\(remoto\.guardadoEn \|\| doc\.actualizado \|\| 0\) <= \(state\.guardadoEn \|\| 0\)\) return;/.test(js),
+  'Una copia vieja de la nube no pisa lo que acabas de escribir aquí');
+ok(/if \(u\) await entrarApp\(u\);/.test(js) && /else \{ finCarga\(\); abrirIntro\(\); \}/.test(js),
+  'Con sesión se entra directo; solo sin sesión se pide la contraseña');
+ok(/cargaPct = Math\.max\(cargaPct, /.test(js),
+  'La barra de carga nunca retrocede (los pasos llegan desordenados)');
+const pasosCarga = js.match(/avisarCarga\(\d+, '[^']+'\)/g) || [];
+ok(pasosCarga.length >= 7, 'La carga informa de varios pasos (no se queda en uno solo)',
+  pasosCarga.length + ' pasos');
+ok(/avisarCarga\(40, 'Conectando con la nube…'\)[\s\S]{0,80}?Nube\.init\(\)/.test(js),
+  'El paso más lento (bajar el SDK) se anuncia antes de empezarlo');
+ok(/remoto\.guardadoEn = tNube;/.test(js),
+  'Al adoptar la copia de la nube se sella con su hora (si no, se queda en 0 y gana siempre)');
+ok(/else if \(tLocal > tNube\)/.test(js),
+  'Con las dos marcas iguales no se sube ni se baja nada (ya está sincronizado)');
+ok(/JSON\.stringify\(state\) !== JSON\.stringify\(remoto\)/.test(js),
+  'Solo se guarda copia aparte si de verdad hay algo distinto que salvar');
+ok(/if \(u\) await entrarApp\(u\);/.test(js) && !/setTimeout\(\(\) => \{ if \(!miUid && \$\('#intro'\)\.hidden\) abrirIntro\(\); \}, 700\)/.test(js),
+  'Ya no se abre la entrada por si acaso a los 700 ms (era el parpadeo del login)');
+ok(/setTimeout\(\(\) => \{\s*if \(!\$\('#carga'\)\.hidden/.test(js),
+  'La cortina tiene red de seguridad: nunca se queda puesta');
+ok(/s\.guardadoEn = Number\(data\.guardadoEn\) \|\| 0/.test(js),
+  'La marca de tiempo sobrevive al guardado y a la recarga');
+ok(/if \(\$\('#intro'\)\.hidden\) document\.body\.classList\.remove\('intro-abierto'\)/.test(js),
+  'Al terminar la carga, el fondo se desbloquea solo si no hay entrada delante');
 /* El aviso tiene que caber de verdad: texto corto en pantalla y detalle en
    el tooltip, o en la barra de una línea se recorta con puntos suspensivos. */
 ok(/hint\.title = largo/.test(js), 'El detalle del aviso va al tooltip');

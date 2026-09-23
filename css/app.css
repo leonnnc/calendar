@@ -587,6 +587,34 @@ body.drag-icon .cell .add{display:none}
    Entrada, panel oculto y calendarios compartidos
    ============================================================ */
 
+/* ---------- pantalla de carga ---------- */
+.carga{
+  position:fixed;inset:0;z-index:280;display:grid;place-items:center;
+  background:radial-gradient(900px 520px at 20% -10%, #fff 0%, rgba(255,255,255,0) 55%), var(--bg);
+  transition:opacity .25s;
+}
+.carga.fuera{opacity:0;pointer-events:none}
+.carga-caja{width:min(320px,78vw);text-align:center}
+.carga-caja .brand-mark{width:44px;height:44px}
+.carga-titulo{
+  font-family:var(--font-script);font-size:34px;font-weight:700;color:#111;
+  margin:2px 0 14px;line-height:1;
+}
+.carga-barra{
+  height:8px;border-radius:999px;background:#dfe6e1;overflow:hidden;
+  box-shadow:inset 0 1px 2px rgba(20,40,28,.12);
+}
+.carga-relleno{
+  display:block;height:100%;width:0;border-radius:999px;
+  background:linear-gradient(90deg, var(--green-2), var(--green-3));
+  transition:width .3s ease-out;
+}
+.carga-texto{
+  font-family:var(--font-ui);font-size:12px;color:var(--muted);
+  margin:9px 0 0;min-height:1.2em;
+}
+.carga-texto b{color:var(--green-2);font-variant-numeric:tabular-nums}
+
 /* ---------- pantalla de entrada ---------- */
 .intro{
   position:fixed;inset:0;z-index:260;display:grid;place-items:center;padding:20px;
@@ -707,7 +735,7 @@ body.mirando-compartido #grid .cell .add{display:none}
   @page{size:A4 landscape;margin:8mm}
   body{background:#fff}
   .topbar,.side,.foot-note,.cell .add,.toast,.drawbar,
-  .sticker-bar,.icon-ghost,.sticker-grip,.intro,.aviso-compartido{display:none !important}
+  .sticker-bar,.icon-ghost,.sticker-grip,.intro,.aviso-compartido,.carga{display:none !important}
   .sticker.sel .sticker-box{outline:none}
   .cell.drawing{box-shadow:none}
   .app{max-width:none;padding:0}
