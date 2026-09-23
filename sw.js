@@ -6,7 +6,7 @@
    IMPORTANTE: al tocar cualquier archivo de la app, subir VERSION.
    ============================================================ */
 
-const VERSION = 'calendario-v2';
+const VERSION = 'calendario-v3';
 const SHELL = [
   './',
   './index.html',

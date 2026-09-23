@@ -48,6 +48,34 @@ const EMOJI_BY_KEY   = new Map(EMOJI.map((s) => [s.key, s]));
 const ALL_ICONS      = STICKERS.concat(EMOJI);
 const MAX_RECENTS    = 24;
 
+/* ---------- iconos colocables: tamaño, giro y movimiento ----------
+   Cada icono suelto de una casilla guarda su propia posición (en % de la
+   casilla), su escala, su giro y su animación. */
+const STICKER_BASE = 32;      // lado en píxeles con escala 1
+const STICKER_MIN  = 0.5;     // 50 %
+const STICKER_MAX  = 3.5;     // 350 %
+const ROT_STEP     = 15;      // grados por pulsación
+const ANIMS = [
+  { id: '',       label: 'Sin movimiento' },
+  { id: 'float',  label: 'Flotar' },
+  { id: 'pulse',  label: 'Latir' },
+  { id: 'swing',  label: 'Vaivén' },
+  { id: 'bounce', label: 'Botar' },
+  { id: 'spin',   label: 'Girar' },
+  { id: 'wiggle', label: 'Zigzag' },
+];
+const ANIM_IDS = ANIMS.map((a) => a.id);
+
+function clampNum(v, min, max, def) {
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  if (!isFinite(n)) return def;
+  return Math.min(max, Math.max(min, n));
+}
+
+function uid() {
+  return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+}
+
 /* ---------- estado ---------- */
 const DEF = {
   v: 1,
@@ -82,6 +110,13 @@ function load() {
     Object.assign(s.settings, data.settings || {});
     s.settings.collapsed = Object.assign({ todo: false, grocery: false }, (data.settings || {}).collapsed || {});
     s.days = data.days || {};
+    Object.keys(s.days).forEach((k) => {
+      const r = s.days[k];
+      if (!r || typeof r !== 'object') { delete s.days[k]; return; }
+      if (!Array.isArray(r.items)) r.items = [];
+      r.stickers = Array.isArray(r.stickers) ? r.stickers.map(normSticker).filter(Boolean) : [];
+      if (dayEmpty(r)) delete s.days[k];
+    });
     s.todo = Array.isArray(data.todo) ? data.todo : [];
     s.grocery = Array.isArray(data.grocery) ? data.grocery : [];
     s.recents = Array.isArray(data.recents) ? data.recents : [];
@@ -92,6 +127,28 @@ function load() {
   }
 }
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+/* Un icono colocado a mano: posición, tamaño, giro y movimiento. */
+function normSticker(s) {
+  if (!s || !s.icon || !iconOf(s.icon)) return null;
+  return {
+    id: s.id || uid(),
+    icon: s.icon,
+    x: clampNum(s.x, 4, 96, 50),
+    y: clampNum(s.y, 6, 94, 50),
+    s: clampNum(s.s, STICKER_MIN, STICKER_MAX, 1),
+    r: clampNum(s.r, -180, 180, 0),
+    anim: ANIM_IDS.indexOf(s.anim) > 0 ? s.anim : '',
+  };
+}
+function normStickers() {
+  Object.keys(state.days).forEach((k) => {
+    const r = state.days[k];
+    if (!r) return;
+    r.stickers = Array.isArray(r.stickers) ? r.stickers.map(normSticker).filter(Boolean) : [];
+    if (dayEmpty(r)) delete state.days[k];
+  });
+}
 
 let saveTimer = 0;
 function save() {
@@ -115,15 +172,17 @@ function dateOfKey(k) {
 }
 function dayRecord(k, create) {
   let r = state.days[k];
-  if (!r && create) { r = { items: [], ink: null }; state.days[k] = r; }
+  if (!r && create) { r = { items: [], ink: null, stickers: [] }; state.days[k] = r; }
+  if (r && !Array.isArray(r.stickers)) r.stickers = [];
   return r;
 }
-function hasContent(k) {
-  const r = state.days[k];
-  if (!r) return false;
-  return (r.items && r.items.length > 0) || !!r.ink;
+function dayEmpty(r) {
+  if (!r) return true;
+  return !(r.items && r.items.length) && !(r.stickers && r.stickers.length) && !r.ink;
 }
-const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+function hasContent(k) {
+  return !dayEmpty(state.days[k]);
+}
 
 /* ---------- iconos ---------- */
 function iconOf(key) { return STICKER_BY_KEY.get(key) || EMOJI_BY_KEY.get(key) || null; }
@@ -288,11 +347,17 @@ function renderGrid() {
       rec.items.forEach((it) => box.append(buildChip(it, k, false)));
     }
 
-    cell.append(num, add, cv, box);
+    const layer = el('div', 'cell-stickers');
+    if (rec && rec.stickers) {
+      rec.stickers.forEach((st) => layer.append(stickerNode(st, k)));
+    }
+
+    cell.append(num, add, cv, box, layer);
     if (drawDay === k) cell.classList.add('drawing');
     grid.append(cell);
   }
   initInk();
+  applySelection();
 }
 
 function buildChip(item, dayKey, withTools) {
@@ -388,7 +453,7 @@ function initInk() {
       drawing = false;
       const r = dayRecord(k, true);
       try { r.ink = cv.toDataURL('image/png'); } catch (err) { /* ignorar */ }
-      if (r.items.length === 0 && !r.ink) delete state.days[k];
+      if (dayEmpty(r)) delete state.days[k];
       save();
       updateHint();
     };
@@ -401,9 +466,479 @@ function initInk() {
 let resizeTimer = 0;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { initInk(); placePopover(); }, 220);
+  resizeTimer = setTimeout(() => { initInk(); placePopover(); placeStickerBar(); }, 220);
 });
-window.addEventListener('scroll', () => { if (editing) placePopover(); }, { passive: true });
+window.addEventListener('scroll', () => {
+  if (editing) placePopover();
+  if (selected) placeStickerBar();
+}, { passive: true });
+
+/* ============================================================
+   Iconos colocables: mover, agrandar, reducir, girar y animar
+   ============================================================ */
+let selected = null;        // { day, id } del icono seleccionado
+let swallowClick = false;   // evita que un arrastre cuente como clic
+
+function getSticker(day, id) {
+  const r = state.days[day];
+  if (!r || !Array.isArray(r.stickers)) return null;
+  const hit = r.stickers.filter((s) => s.id === id)[0];
+  return hit || null;
+}
+function stickerInDom(day, id) {
+  return $('.sticker[data-day="' + day + '"][data-id="' + id + '"]');
+}
+
+function stickerNode(st, dayKey) {
+  const node = el('div', 'sticker');
+  node.dataset.id = st.id;
+  node.dataset.day = dayKey;
+  node.style.left = st.x + '%';
+  node.style.top = st.y + '%';
+  node.style.setProperty('--base', STICKER_BASE + 'px');
+  node.style.setProperty('--sc', String(st.s));
+  node.style.setProperty('--rot', st.r + 'deg');
+  if (st.anim) node.dataset.anim = st.anim;
+
+  const box = el('div', 'sticker-box');
+  const anim = el('div', 'sticker-anim');
+  const fig = iconEl(st.icon, 'st-fig');
+  if (fig) anim.append(fig);
+
+  const grip = el('button', 'sticker-grip');
+  grip.type = 'button';
+  grip.dataset.act = 'resize';
+  grip.title = 'Arrastra para agrandar o reducir';
+  grip.setAttribute('aria-label', 'Cambiar tamaño del icono');
+
+  box.append(anim, grip);
+  node.append(box);
+
+  const s = iconOf(st.icon);
+  node.title = (s ? s.name : 'Icono') + ' · arrastra para moverlo de sitio o de día';
+  if (selected && selected.day === dayKey && selected.id === st.id) node.classList.add('sel');
+  return node;
+}
+
+function applySelection() {
+  if (selected && !getSticker(selected.day, selected.id)) {
+    selected = null;
+    const b = $('#sticker-bar');
+    if (b) b.hidden = true;
+  }
+  $$('.sticker').forEach((n) => {
+    const on = !!(selected && n.dataset.day === selected.day && n.dataset.id === selected.id);
+    n.classList.toggle('sel', on);
+  });
+  syncStickerBar();
+}
+
+function selectSticker(day, id) {
+  selected = { day: day, id: id };
+  const bar = ensureStickerBar();
+  const st = getSticker(day, id);
+  if (st) {
+    const s = iconOf(st.icon);
+    const d = dateOfKey(day);
+    bar.querySelector('.sbar-name').textContent =
+      (s ? s.name : 'Icono') + ' — ' + d.getDate() + ' de ' + MONTH_ES[d.getMonth()];
+  }
+  bar.hidden = false;
+  applySelection();
+  placeStickerBar();
+}
+
+function clearSelection() {
+  selected = null;
+  $$('.sticker').forEach((n) => n.classList.remove('sel'));
+  const bar = $('#sticker-bar');
+  if (bar) bar.hidden = true;
+}
+
+function placeStickerBar() {
+  const bar = $('#sticker-bar');
+  if (!bar || bar.hidden || !selected) return;
+  const cell = cellOf(selected.day);
+  if (!cell) return;
+  const r = cell.getBoundingClientRect();
+  const bw = bar.offsetWidth || 520;
+  const bh = bar.offsetHeight || 44;
+  const margin = 8;
+  let top = r.bottom + 6;
+  if (top + bh > window.innerHeight - margin) {
+    const above = r.top - bh - 6;
+    top = above > margin ? above : Math.max(margin, Math.min(top, window.innerHeight - bh - margin));
+  }
+  const left = Math.min(Math.max(margin, r.left), Math.max(margin, window.innerWidth - bw - margin));
+  bar.style.left = Math.round(left) + 'px';
+  bar.style.top = Math.round(top) + 'px';
+}
+
+function ensureStickerBar() {
+  let bar = $('#sticker-bar');
+  if (bar) return bar;
+  const mk = (act, label, title) => {
+    const b = el('button', 'btn btn-mini', label);
+    b.type = 'button';
+    b.dataset.act = act;
+    b.title = title || label;
+    return b;
+  };
+
+  bar = el('div', 'sticker-bar');
+  bar.id = 'sticker-bar';
+  bar.hidden = true;
+  bar.append(el('span', 'sbar-name', 'Icono'));
+
+  const val = el('span', 'sbar-val', '100%');
+  const animWrap = el('label', 'sbar-anim');
+  animWrap.append(el('span', 'sbar-lbl', 'Movimiento'));
+  const sel = el('select', 'sbar-select');
+  ANIMS.forEach((a) => {
+    const o = el('option', null, a.label);
+    o.value = a.id;
+    sel.append(o);
+  });
+  animWrap.append(sel);
+
+  const del = mk('remove', 'Quitar', 'Quitar este icono');
+  del.classList.add('btn-danger');
+  const done = el('button', 'btn btn-mini btn-primary', 'Listo');
+  done.type = 'button';
+  done.dataset.act = 'close-sticker';
+
+  bar.append(
+    mk('size-down', '−', 'Reducir (rueda del ratón hacia abajo)'),
+    val,
+    mk('size-up', '+', 'Agrandar (rueda del ratón hacia arriba)'),
+    mk('rot-left', '⟲', 'Girar a la izquierda'),
+    mk('rot-right', '⟳', 'Girar a la derecha'),
+    animWrap,
+    mk('center', 'Centrar', 'Volver al centro del día'),
+    del,
+    done
+  );
+  document.body.append(bar);
+
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b || !selected) return;
+    const st = getSticker(selected.day, selected.id);
+    if (!st) return;
+    const a = b.dataset.act;
+    if (a === 'size-down') setStickerSize(st.s - 0.25);
+    else if (a === 'size-up') setStickerSize(st.s + 0.25);
+    else if (a === 'rot-left') setStickerRot(st.r - ROT_STEP);
+    else if (a === 'rot-right') setStickerRot(st.r + ROT_STEP);
+    else if (a === 'center') moveStickerTo(selected.day, selected.id, 50, 50);
+    else if (a === 'remove') removeSticker(selected.day, selected.id);
+    else if (a === 'close-sticker') clearSelection();
+  });
+  sel.addEventListener('change', () => {
+    if (selected) setStickerAnim(sel.value);
+  });
+  return bar;
+}
+
+function syncStickerBar() {
+  const bar = $('#sticker-bar');
+  if (!bar || bar.hidden || !selected) return;
+  const st = getSticker(selected.day, selected.id);
+  if (!st) return;
+  const val = bar.querySelector('.sbar-val');
+  if (val) val.textContent = Math.round(st.s * 100) + '%';
+  const sel = bar.querySelector('.sbar-select');
+  if (sel && sel.value !== st.anim) sel.value = st.anim;
+}
+
+function setStickerSize(v) {
+  if (!selected) return;
+  const st = getSticker(selected.day, selected.id);
+  if (!st) return;
+  st.s = clampNum(v, STICKER_MIN, STICKER_MAX, st.s);
+  const n = stickerInDom(selected.day, st.id);
+  if (n) n.style.setProperty('--sc', String(st.s));
+  syncStickerBar();
+  save();
+}
+
+function setStickerRot(v) {
+  if (!selected) return;
+  const st = getSticker(selected.day, selected.id);
+  if (!st) return;
+  st.r = clampNum(v, -180, 180, st.r);
+  const n = stickerInDom(selected.day, st.id);
+  if (n) n.style.setProperty('--rot', st.r + 'deg');
+  save();
+}
+
+function setStickerAnim(v) {
+  if (!selected) return;
+  const st = getSticker(selected.day, selected.id);
+  if (!st) return;
+  st.anim = ANIM_IDS.indexOf(v) > 0 ? v : '';
+  const n = stickerInDom(selected.day, st.id);
+  if (n) {
+    if (st.anim) n.dataset.anim = st.anim; else delete n.dataset.anim;
+  }
+  save();
+}
+
+function paintStickerPos() {
+  if (!selected) return;
+  const st = getSticker(selected.day, selected.id);
+  const n = stickerInDom(selected.day, selected.id);
+  if (st && n) { n.style.left = st.x + '%'; n.style.top = st.y + '%'; }
+  save();
+}
+
+/* Coloca un icono nuevo (por defecto del tamaño y sin movimiento). */
+function addSticker(day, key, x, y) {
+  if (!iconOf(key)) return null;
+  const rec = dayRecord(day, true);
+  const st = normSticker({
+    id: uid(), icon: key,
+    x: clampNum(x, 4, 96, 50),
+    y: clampNum(y, 6, 94, 50),
+    s: 1, r: 0, anim: '',
+  });
+  if (!st) return null;
+  rec.stickers.push(st);
+  pushRecent(key);
+  save();
+  return st;
+}
+
+function moveStickerTo(day, id, x, y) {
+  const st = getSticker(day, id);
+  if (!st) return;
+  st.x = clampNum(x, 4, 96, st.x);
+  st.y = clampNum(y, 6, 94, st.y);
+  const n = stickerInDom(day, id);
+  if (n) { n.style.left = st.x + '%'; n.style.top = st.y + '%'; }
+  save();
+}
+
+/* Mueve un icono, incluso de un día a otro. */
+function moveSticker(fromDay, id, toDay, x, y) {
+  const src = state.days[fromDay];
+  if (!src || !Array.isArray(src.stickers)) return;
+  const i = src.stickers.map((s) => s.id).indexOf(id);
+  if (i < 0) return;
+  const st = src.stickers.splice(i, 1)[0];
+  st.x = clampNum(x, 4, 96, st.x);
+  st.y = clampNum(y, 6, 94, st.y);
+  const dst = dayRecord(toDay, true);
+  dst.stickers.push(st);
+  if (dayEmpty(src)) delete state.days[fromDay];
+
+  renderGrid();
+  updateHint();
+  if (editing && (!state.days[editing])) closeEditor();
+  else if (editing) renderEditor();
+  const s = iconOf(st.icon);
+  if (fromDay === toDay) {
+    selectSticker(toDay, st.id);
+  } else {
+    selectSticker(toDay, st.id);
+    const d = dateOfKey(toDay);
+    toast('«' + (s ? s.name : 'Icono') + '» movido al ' + d.getDate() + ' de ' + MONTH_ES[d.getMonth()]);
+  }
+  save();
+}
+
+function removeSticker(day, id) {
+  const rec = state.days[day];
+  if (!rec || !Array.isArray(rec.stickers)) return;
+  const i = rec.stickers.map((s) => s.id).indexOf(id);
+  if (i < 0) return;
+  const st = rec.stickers.splice(i, 1)[0];
+  clearSelection();
+  if (dayEmpty(rec)) delete state.days[day];
+  renderGrid();
+  updateHint();
+  if (editing === day) { if (state.days[day]) renderEditor(); else closeEditor(); }
+  const s = iconOf(st.icon);
+  toast('«' + (s ? s.name : 'Icono') + '» quitado');
+  save();
+}
+
+/* --- arrastrar un icono ya colocado (dentro del día o a otro día) --- */
+function startStickerDrag(e, node) {
+  const from = node.dataset.day;
+  const id = node.dataset.id;
+  const st = getSticker(from, id);
+  if (!st) return;
+  const startX = e.clientX;
+  const startY = e.clientY;
+  let moved = false;
+  let target = null;
+
+  const clearTarget = () => {
+    if (target) target.classList.remove('drop-target');
+    target = null;
+  };
+  const cellAt = (x, y) => {
+    const under = document.elementFromPoint(x, y);
+    return under && under.closest ? under.closest('.cell') : null;
+  };
+
+  const onMove = (ev) => {
+    if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
+    if (!moved) {
+      moved = true;
+      node.classList.add('ghost');
+      document.body.append(node);
+      document.body.classList.add('drag-icon');
+    }
+    node.style.left = ev.clientX + 'px';
+    node.style.top = ev.clientY + 'px';
+    const cell = cellAt(ev.clientX, ev.clientY);
+    if (cell !== target) {
+      clearTarget();
+      target = cell;
+      if (target) target.classList.add('drop-target');
+    }
+  };
+
+  const onUp = (ev) => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    clearTarget();
+    const cell = cellAt(ev.clientX, ev.clientY);   // antes de devolver el buscador
+    document.body.classList.remove('drag-icon');
+    if (!moved) { selectSticker(from, id); return; }
+    const to = cell && cell.dataset.day;
+    node.remove();          // el fantasma sobra: la casilla se vuelve a pintar
+    if (to) {
+      const r = cell.getBoundingClientRect();
+      moveSticker(from, id, to,
+        ((ev.clientX - r.left) / r.width) * 100,
+        ((ev.clientY - r.top) / r.height) * 100);
+    } else {
+      renderGrid();
+      selectSticker(from, id);
+    }
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
+}
+
+/* --- tirar del pico para agrandar o reducir --- */
+function startStickerResize(e, grip) {
+  const node = grip.closest('.sticker');
+  const day = node.dataset.day;
+  const id = node.dataset.id;
+  const st = getSticker(day, id);
+  const cell = cellOf(day);
+  if (!st || !cell) return;
+  const cr = cell.getBoundingClientRect();
+  const cx = cr.left + (cr.width * st.x) / 100;
+  const cy = cr.top + (cr.height * st.y) / 100;
+  const d0 = Math.max(14, Math.hypot(e.clientX - cx, e.clientY - cy));
+  const s0 = st.s;
+
+  const onMove = (ev) => {
+    const d = Math.hypot(ev.clientX - cx, ev.clientY - cy);
+    st.s = clampNum(s0 * (d / d0), STICKER_MIN, STICKER_MAX, st.s);
+    node.style.setProperty('--sc', String(st.s));
+    syncStickerBar();
+  };
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    save();
+  };
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
+}
+
+/* --- arrastrar un icono desde el buscador hasta un día --- */
+function startPickDrag(e, key) {
+  const startX = e.clientX;
+  const startY = e.clientY;
+  let moved = false;
+  let ghost = null;
+  let target = null;
+
+  const clearTarget = () => {
+    if (target) target.classList.remove('drop-target');
+    target = null;
+  };
+  const at = (x, y) => {
+    const under = document.elementFromPoint(x, y);
+    return under && under.closest ? under : null;
+  };
+
+  const onMove = (ev) => {
+    if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+    if (!moved) {
+      moved = true;
+      ghost = el('div', 'icon-ghost');
+      const fig = iconEl(key, 'st-fig');
+      if (fig) ghost.append(fig);
+      document.body.append(ghost);
+      document.body.classList.add('drag-icon');   // aparta el buscador y deja ver el mes
+    }
+    ghost.style.left = ev.clientX + 'px';
+    ghost.style.top = ev.clientY + 'px';
+    const under = at(ev.clientX, ev.clientY);
+    const cell = under ? under.closest('.cell') : null;
+    if (cell !== target) {
+      clearTarget();
+      target = cell;
+      if (target) target.classList.add('drop-target');
+    }
+  };
+
+  const onUp = (ev) => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    clearTarget();
+    /* Ojo con el orden: `drag-icon` es lo que aparta el buscador, así que hay que
+       mirar qué hay debajo ANTES de devolverlo. Si no, el propio panel (que vuelve
+       a ser hitable) intercepta el punto y el icono nunca llega a la casilla. */
+    const under = at(ev.clientX, ev.clientY);
+    const cell = under ? under.closest('.cell') : null;
+    document.body.classList.remove('drag-icon');
+    if (ghost) ghost.remove();
+    if (!moved) return;            // fue un clic normal: lo resuelve el propio clic
+    swallowClick = true;
+
+    const s = iconOf(key);
+    if (cell && cell.dataset.day) {
+      const r = cell.getBoundingClientRect();
+      addSticker(cell.dataset.day, key,
+        ((ev.clientX - r.left) / r.width) * 100,
+        ((ev.clientY - r.top) / r.height) * 100);
+      renderGrid();
+      updateHint();
+      const d = dateOfKey(cell.dataset.day);
+      toast('«' + (s ? s.name : 'Icono') + '» en el ' + d.getDate() + ' de ' + MONTH_ES[d.getMonth()]);
+      closePicker();
+      return;
+    }
+    if (under) {
+      if (under.closest('#head-sticker')) {
+        state.settings.headSticker = key; renderSheet(); save(); closePicker(); return;
+      }
+      if (under.closest('#cheer-sticker')) {
+        state.settings.cheerSticker = key; renderSheet(); save(); closePicker(); return;
+      }
+    }
+    /* Soltado en cualquier otro sitio: el buscador vuelve donde estaba. */
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onUp);
+}
 
 /* ---------- listas: To do y Grocery ---------- */
 const pendingIcon = { todo: null, grocery: null };
@@ -537,6 +1072,10 @@ function renderEditor() {
     if (st) st.dataset.act = 'icon';
     host.append(chip);
   });
+  if (rec && rec.stickers && rec.stickers.length) {
+    host.append(el('p', 'hint',
+      rec.stickers.length + ' icono(s) colocado(s) aquí: muévelos y agrándalos arrastrándolos en la casilla.'));
+  }
   const slot = $('#day-pick-icon .ico-slot');
   slot.textContent = '☺';
   slot.style.opacity = '.55';
@@ -591,6 +1130,7 @@ function ensureDrawbar() {
 
 function startDraw(k) {
   closeEditor();
+  clearSelection();
   drawDay = k;
   const bar = ensureDrawbar();
   const d = dateOfKey(k);
@@ -620,7 +1160,7 @@ function clearInk(k) {
   const rec = state.days[k];
   if (rec) {
     rec.ink = null;
-    if (rec.items.length === 0) delete state.days[k];
+    if (dayEmpty(rec)) delete state.days[k];
   }
   const cv = cellOf(k) && cellOf(k).querySelector('.ink');
   if (cv) {
@@ -695,11 +1235,17 @@ function stCell(s) {
   const c = el('button', 'st-cell' + (s.kind === 'emo' ? ' emo' : ''));
   c.type = 'button';
   c.dataset.key = s.key;
-  c.title = s.name;
+  c.title = s.name + ' · pulsa para usar, arrastra hasta un día para colocarlo';
   c.setAttribute('role', 'option');
   const fig = el('span', 'fig');
   if (s.kind === 'svg') fig.innerHTML = s.svg; else fig.textContent = s.ch;
   c.append(fig, el('span', 'lbl', s.name));
+  /* Mantener pulsado y arrastrar: el icono se despega y se suelta en un día. */
+  c.addEventListener('pointerdown', (e) => {
+    if (typeof e.button === 'number' && e.button !== 0) return;
+    swallowClick = false;
+    startPickDrag(e, s.key);
+  });
   return c;
 }
 
@@ -834,6 +1380,9 @@ function importJSON(file) {
       if (!window.confirm('Se reemplazará el calendario actual con el de la copia. ¿Continuar?')) return;
       state = Object.assign(clone(DEF), data);
       state.settings = Object.assign(clone(DEF.settings), data.settings || {});
+      state.days = state.days || {};
+      state.recents = Array.isArray(state.recents) ? state.recents : [];
+      normStickers();
       applyFont(state.settings.font);
       fillFontSelect();
       $('#ink-color').value = state.settings.ink;
@@ -866,11 +1415,15 @@ function exportICS() {
     const k = keyOf(date);
     const rec = state.days[k];
     if (!rec || !rec.items || !rec.items.length) continue;
-    const summary = rec.items.map((it) => {
+    const names = rec.items.map((it) => {
       const s = it.icon ? iconOf(it.icon) : null;
-      const label = it.text || (s ? s.name : '');
-      return label;
-    }).filter(Boolean).join(', ').replace(/([,;\\])/g, '\\$1');
+      return it.text || (s ? s.name : '');
+    });
+    (rec.stickers || []).forEach((st) => {
+      const s = iconOf(st.icon);
+      if (s) names.push(s.name);
+    });
+    const summary = names.filter(Boolean).join(', ').replace(/([,;\\])/g, '\\$1');
     const ymd = pad4(date.getFullYear()) + pad2(date.getMonth() + 1) + pad2(date.getDate());
     lines.push('BEGIN:VEVENT');
     lines.push('UID:' + ymd + '-' + pad2(d) + '@calendario-local');
@@ -903,6 +1456,10 @@ function exportMD() {
         if (label) parts.push(label);
       });
     }
+    (rec.stickers || []).forEach((st) => {
+      const s = iconOf(st.icon);
+      if (s) parts.push('[' + s.name + ']');
+    });
     if (rec.ink) parts.push('_(tiene un dibujo a mano)_');
     if (!parts.length) continue;
     any = true;
@@ -1009,7 +1566,37 @@ function wireAll() {
   $('#cheer-sticker').addEventListener('click', () => openPicker({ type: 'cheer' }));
 
   /* --- cuadrícula --- */
+  $('#grid').addEventListener('pointerdown', (e) => {
+    if (drawDay) return;
+    const grip = e.target.closest('.sticker-grip');
+    if (grip) {
+      e.preventDefault();
+      e.stopPropagation();
+      startStickerResize(e, grip);
+      return;
+    }
+    const node = e.target.closest('.sticker');
+    if (!node) return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectSticker(node.dataset.day, node.dataset.id);
+    startStickerDrag(e, node);
+  });
+
+  /* La rueda del ratón sobre un icono lo agranda o lo reduce. */
+  $('#grid').addEventListener('wheel', (e) => {
+    const node = e.target.closest('.sticker');
+    if (!node || drawDay) return;
+    e.preventDefault();
+    if (!selected || selected.id !== node.dataset.id || selected.day !== node.dataset.day) {
+      selectSticker(node.dataset.day, node.dataset.id);
+    }
+    const st = getSticker(node.dataset.day, node.dataset.id);
+    if (st) setStickerSize(st.s + (e.deltaY < 0 ? 0.2 : -0.2));
+  }, { passive: false });
+
   $('#grid').addEventListener('click', (e) => {
+    if (e.target.closest('.sticker')) return;   // los iconos se manejan aparte
     const cell = e.target.closest('.cell');
     if (!cell || drawDay) return;
     const k = cell.dataset.day;
@@ -1141,7 +1728,7 @@ function wireAll() {
       if (!rec) return;
       const i = rec.items.map((x) => x.id).indexOf(chip.dataset.item);
       if (i >= 0) rec.items.splice(i, 1);
-      if (!rec.items.length && !rec.ink) delete state.days[editing];
+      if (dayEmpty(rec)) delete state.days[editing];
       save(); renderEditor(); renderGrid(); updateHint();
       toast('Quitado');
       return;
@@ -1183,6 +1770,7 @@ function wireAll() {
     renderPicker();
   });
   $('#picker-grid').addEventListener('click', (e) => {
+    if (swallowClick) { swallowClick = false; return; }   // venía de un arrastre
     const c = e.target.closest('.st-cell');
     if (c) applyPick(c.dataset.key);
   });
@@ -1232,18 +1820,51 @@ function wireAll() {
       if (!$('#data-modal').hidden) { $('#data-modal').hidden = true; return; }
       if (drawDay) { stopDraw(); return; }
       if (editing) { closeEditor(); return; }
+      if (selected) { clearSelection(); return; }
       return;
     }
     if (editing || drawDay) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+
+    /* Con un icono elegido: flechas para moverlo, + y − para el tamaño. */
+    if (selected) {
+      const st = getSticker(selected.day, selected.id);
+      if (st) {
+        const step = e.shiftKey ? 5 : 1;
+        const k = e.key;
+        let used = true;
+        if (k === 'ArrowLeft')       st.x = clampNum(st.x - step, 4, 96, st.x);
+        else if (k === 'ArrowRight') st.x = clampNum(st.x + step, 4, 96, st.x);
+        else if (k === 'ArrowUp')    st.y = clampNum(st.y - step, 6, 94, st.y);
+        else if (k === 'ArrowDown')  st.y = clampNum(st.y + step, 6, 94, st.y);
+        else if (k === '+' || k === '=') setStickerSize(st.s + 0.25);
+        else if (k === '-' || k === '_') setStickerSize(st.s - 0.25);
+        else if (k === 'Delete' || k === 'Backspace') removeSticker(selected.day, st.id);
+        else if (k === '0') moveStickerTo(selected.day, st.id, 50, 50);
+        else used = false;
+        if (used) {
+          e.preventDefault();
+          if (k.indexOf('Arrow') === 0) paintStickerPos();
+          return;
+        }
+      }
+    }
+
     if (e.key === 'ArrowLeft') goto(view.y, view.m - 1);
     if (e.key === 'ArrowRight') goto(view.y, view.m + 1);
   });
 
   document.addEventListener('pointerdown', (e) => {
+    /* Un clic fuera de un icono (o de su barra) lo deselecciona. */
+    if (selected && e.target.closest &&
+        !e.target.closest('.sticker') && !e.target.closest('.sticker-bar') &&
+        !e.target.closest('.overlay')) {
+      clearSelection();
+    }
     if (!editing) return;
     if ($('#day-editor').contains(e.target)) return;
+    if (e.target.closest && e.target.closest('.sticker-bar')) return;
     const cell = e.target.closest && e.target.closest('.cell');
     if (cell && cell.dataset.day === editing) return;
     if (e.target.closest && e.target.closest('.overlay')) return;

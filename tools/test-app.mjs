@@ -150,7 +150,7 @@ const usedIds = new Set();
 (js.match(/\$\('#([A-Za-z0-9_-]+)'/g) || []).forEach((m) => usedIds.add(m.slice(4, -1)));
 ['card-todo', 'card-grocery', 'list-todo', 'list-grocery'].forEach((v) => usedIds.add(v));
 // Elementos que app.js crea en tiempo de ejecución o arma por concatenación.
-const DYNAMIC_IDS = ['card-', 'drawbar', 'drawbar-color'];
+const DYNAMIC_IDS = ['card-', 'drawbar', 'drawbar-color', 'sticker-bar'];
 const missingIds = [...usedIds].filter((v) => !ids.has(v) && DYNAMIC_IDS.indexOf(v) < 0);
 ok(missingIds.length === 0, 'Todos los id que usa app.js existen en index.html', missingIds.join(', '));
 
@@ -162,7 +162,10 @@ ok(missingAttrs.length === 0, 'Los atributos data-* que usa app.js existen en el
 const neededClasses = ['cell', 'cell-items', 'chip', 'ink', 'num', 'add', 'row', 'check',
   'ico', 'txt', 'qty', 'del', 'list', 'add-row', 'popover', 'day-items', 'day-new',
   'day-tools', 'overlay', 'picker-panel', 'picker-grid', 'st-cell', 'fig', 'lbl', 'tab',
-  'sec-title', 'empty', 'drawbar', 'drawing', 'today', 'other', 'weekend', 'done'];
+  'sec-title', 'empty', 'drawbar', 'drawing', 'today', 'other', 'weekend', 'done',
+  'cell-stickers', 'sticker', 'sticker-box', 'sticker-anim', 'sticker-grip', 'st-fig',
+  'sticker-bar', 'sbar-name', 'sbar-val', 'sbar-anim', 'sbar-select', 'icon-ghost',
+  'drop-target', 'ghost', 'sel', 'picker-tip'];
 const missingCss = neededClasses.filter((c) => css.indexOf('.' + c.trim()) < 0);
 ok(missingCss.length === 0, 'Todas las clases que usa app.js están definidas en app.css', missingCss.join(', '));
 
@@ -172,6 +175,51 @@ ok(css.indexOf('[contenteditable]:empty:before') > 0, 'La CSS define los textos 
 ok(/\[hidden\]\s*\{\s*display\s*:\s*none/.test(css),
   'La CSS respeta el atributo hidden (si no, los paneles quedan siempre abiertos)');
 ok(css.indexOf('@media print') > 0, 'Hay estilos de impresión');
+
+/* ---------- 3b. iconos colocables: arrastrar, tamaño y movimiento ---------- */
+const ANIMS = (js.match(/const ANIMS = \[([\s\S]*?)\];/) || ['', ''])[1];
+const animIds = [...ANIMS.matchAll(/id:\s*'([a-z]*)'/g)].map((m) => m[1]);
+ok(animIds.length >= 5, 'app.js declara al menos 5 movimientos', animIds.join(', '));
+ok(animIds[0] === '', 'El primer movimiento es «sin movimiento»');
+const sinKeyframes = animIds.filter((id) => id && css.indexOf('@keyframes st-' + id) < 0);
+ok(sinKeyframes.length === 0, 'Cada movimiento tiene sus @keyframes en la CSS', sinKeyframes.join(', '));
+const sinRegla = animIds.filter((id) => id && css.indexOf('.sticker[data-anim="' + id + '"]') < 0);
+ok(sinRegla.length === 0, 'Cada movimiento está enganchado desde la CSS', sinRegla.join(', '));
+ok(/prefers-reduced-motion/.test(css), 'La CSS respeta «reducir movimiento» del sistema');
+
+const piezas = [
+  ['stickerNode', 'app.js construye el nodo de cada icono colocado'],
+  ['cell-stickers', 'app.js crea la capa de iconos dentro de la casilla'],
+  ['sticker-grip', 'app.js tiene el pico para agrandar y reducir'],
+  ['startStickerDrag', 'app.js permite arrastrar un icono ya colocado'],
+  ['startStickerResize', 'app.js permite redimensionar tirando del pico'],
+  ['startPickDrag', 'app.js permite arrastrar desde el buscador hasta un día'],
+  ['moveSticker', 'app.js permite mover un icono de un día a otro'],
+  ['removeSticker', 'app.js permite quitar un icono colocado'],
+  ['setStickerSize', 'app.js cambia el tamaño'],
+  ['setStickerAnim', 'app.js cambia el movimiento'],
+  ['drop-target', 'la casilla destino se resalta al arrastrar'],
+  ['normSticker', 'los datos se sanean al cargar (posición, escala, giro)'],
+  ['dayEmpty', 'un día se borra solo si no queda texto, dibujo ni icono'],
+];
+const faltanPiezas = piezas.filter(([k]) => js.indexOf(k) < 0);
+ok(faltanPiezas.length === 0, 'La app trae todas las piezas de los iconos colocables',
+  faltanPiezas.map(([k]) => k).join(', '));
+
+const campos = ['x', 'y', 's', 'r', 'anim'];
+const sinCampo = campos.filter((c) => !new RegExp('\\b' + c + ':').test(js));
+ok(sinCampo.length === 0, 'El icono guarda posición, tamaño, giro y movimiento', sinCampo.join(', '));
+ok(/st\.s\s*=\s*clampNum/.test(js) && /st\.r\s*=\s*clampNum/.test(js),
+  'El tamaño y el giro se limitan a un rango sensato');
+ok(html.indexOf('picker-tip') > 0, 'El buscador explica que se puede arrastrar');
+/* Regresión: al soltar hay que mirar qué hay debajo ANTES de devolver el buscador;
+   si no, el propio panel intercepta el punto y el icono no llega nunca a la casilla. */
+const pickSrc = (js.match(/function startPickDrag[\s\S]*?\n\}/) || [''])[0];
+const iHit = pickSrc.lastIndexOf('at(ev.clientX, ev.clientY)');
+const iOff = pickSrc.indexOf("classList.remove('drag-icon')");
+ok(iHit > 0 && iOff > 0 && iHit < iOff,
+  'El soltado busca la casilla antes de devolver el buscador');
+ok(/arrastra para moverlo/.test(js), 'Cada icono avisa de que se puede arrastrar');
 
 const modeRefs = [
   [/type="module" src="js\/app\.js"/, 'index.html carga js/app.js como módulo'],
@@ -201,6 +249,12 @@ ok(missingShell.length === 0, 'Todos los recursos del service worker existen',
   missingShell.slice(0, 8).join(', '));
 ok(shell.length >= 15, 'El service worker precarga el armazón completo', shell.length + ' entradas');
 ok(/addEventListener\('fetch'/.test(sw), 'El service worker intercepta peticiones');
+const version = (sw.match(/const VERSION = '([^']+)'/) || ['', ''])[1];
+ok(/^calendario-v\d+$/.test(version), 'El service worker declara una versión con formato válido', version);
+ok(version !== 'calendario-v1' && version !== 'calendario-v2',
+  'La versión del service worker se subió tras cambiar la app', version);
+ok(shell.includes('./js/app.js') && shell.includes('./css/app.css'),
+  'El armazón precargado incluye la lógica y los estilos');
 
 const css_fonts = readFileSync(p('assets', 'fonts', 'fonts.css'), 'utf8');
 const fontRefs = (css_fonts.match(/url\('\.\/([^']+)'\)/g) || []).map((s) => s.slice(7, -2));
