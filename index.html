@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Calendario — planificador de borrado en seco</title>
+<meta name="description" content="Calendario mensual con tipografía manuscrita, stickers e iconos con buscador. Funciona sin conexión.">
+<meta name="theme-color" content="#17512f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="assets/fonts/fonts.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true" class="brand-mark">
+        <rect x="3" y="6" width="26" height="23" rx="5" fill="#17512f"/>
+        <rect x="3" y="6" width="26" height="7" rx="3" fill="#2e7d4f"/>
+        <rect x="8" y="2" width="3.4" height="8" rx="1.7" fill="#f2c94c"/>
+        <rect x="20.6" y="2" width="3.4" height="8" rx="1.7" fill="#f2c94c"/>
+        <g fill="#fff" opacity=".92">
+          <rect x="7" y="17" width="4" height="3.4" rx="1"/>
+          <rect x="14" y="17" width="4" height="3.4" rx="1"/>
+          <rect x="21" y="17" width="4" height="3.4" rx="1"/>
+          <rect x="7" y="23" width="4" height="3.4" rx="1"/>
+          <rect x="14" y="23" width="4" height="3.4" rx="1"/>
+        </g>
+        <circle cx="23" cy="24.6" r="2.2" fill="#e04a3f"/>
+      </svg>
+      <span>Calendario</span>
+    </div>
+
+    <div class="topbar-tools">
+      <label class="field">
+        <span class="field-lbl">Letra</span>
+        <select id="font-select" title="Tipografía manuscrita"></select>
+      </label>
+      <button id="btn-print" class="btn" type="button" title="Imprimir o guardar en PDF">Imprimir</button>
+      <button id="btn-data" class="btn" type="button" title="Copia de seguridad de tus datos">Datos</button>
+      <button id="btn-install" class="btn btn-primary" type="button" hidden>Instalar app</button>
+    </div>
+  </header>
+
+  <nav class="nav-bar" aria-label="Navegación de meses">
+    <button id="btn-prev" class="btn btn-icon" type="button" title="Mes anterior">‹</button>
+    <label class="field">
+      <span class="field-lbl">Mes</span>
+      <select id="sel-month"></select>
+    </label>
+    <label class="field">
+      <span class="field-lbl">Año</span>
+      <select id="sel-year"></select>
+    </label>
+    <button id="btn-today" class="btn" type="button">Hoy</button>
+    <button id="btn-next" class="btn btn-icon" type="button" title="Mes siguiente">›</button>
+    <span class="nav-spacer"></span>
+    <span id="nav-hint" class="hint">Haz clic en un día para escribir o pegar un icono</span>
+  </nav>
+
+  <main class="board">
+    <section class="sheet" id="sheet" aria-label="Calendario del mes">
+      <div class="sheet-head">
+        <div class="month-block">
+          <span class="month-script">Month</span><span class="month-sep">:</span>
+          <h1 id="month-name" class="month-name">-</h1>
+        </div>
+        <div class="goal-block">
+          <span class="goal-label">GOALS</span>
+          <div id="goal" class="editable goal-text" contenteditable="plaintext-only" spellcheck="false" data-ph="MERRY CHRISTMAS"></div>
+        </div>
+        <div id="head-sticker" class="head-sticker" title="Cambiar adorno"></div>
+      </div>
+
+      <div class="weekdays" id="weekdays"></div>
+      <div class="grid" id="grid"></div>
+
+      <div class="sheet-foot">
+        <div class="notes-block">
+          <span class="foot-label">NOTES</span>
+          <div id="month-note" class="editable notes-text" contenteditable="plaintext-only" spellcheck="false" data-ph="Escribe aquí las notas del mes…"></div>
+        </div>
+        <div class="cheer-block">
+          <span id="cheer" class="editable cheer-text" contenteditable="plaintext-only" spellcheck="false" data-ph="Have A Good Day!">Have A Good Day!</span>
+          <span id="cheer-sticker" class="cheer-sticker" title="Cambiar adorno"></span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="card" id="card-todo">
+        <header class="card-head">
+          <h2 class="card-title">To do list</h2>
+          <button class="btn btn-mini" data-collapse="todo" type="button" title="Plegar">–</button>
+        </header>
+        <ul class="list" id="list-todo"></ul>
+        <form class="add-row" data-add="todo">
+          <button class="btn btn-icon btn-ico" type="button" data-pick-icon="todo" title="Poner icono"><span class="ico-slot"></span></button>
+          <input type="text" placeholder="Añadir tarea…" aria-label="Nueva tarea">
+          <button class="btn btn-mini btn-add" type="submit" title="Añadir">+</button>
+        </form>
+      </section>
+
+      <section class="card" id="card-grocery">
+        <header class="card-head">
+          <div class="card-title pill">Grocery</div>
+          <button class="btn btn-mini" data-collapse="grocery" type="button" title="Plegar">–</button>
+        </header>
+        <ul class="list" id="list-grocery"></ul>
+        <form class="add-row" data-add="grocery">
+          <button class="btn btn-icon btn-ico" type="button" data-pick-icon="grocery" title="Poner icono"><span class="ico-slot"></span></button>
+          <input type="text" placeholder="Añadir producto…" aria-label="Nuevo producto">
+          <input type="number" class="qty" min="1" step="1" placeholder="×" aria-label="Cantidad">
+          <button class="btn btn-mini btn-add" type="submit" title="Añadir">+</button>
+        </form>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="foot-note">
+    Todo se guarda en este equipo. No se envía nada a internet.
+  </footer>
+</div>
+
+<!-- Panel flotante para editar un día -->
+<div id="day-editor" class="popover" hidden role="dialog" aria-label="Editar día">
+  <header class="pop-head">
+    <strong id="day-editor-title">Día</strong>
+    <button class="x" type="button" data-close-editor aria-label="Cerrar">×</button>
+  </header>
+  <div class="pop-body">
+    <div class="day-items" id="day-items"></div>
+    <div class="day-new">
+      <button class="btn btn-icon btn-ico" id="day-pick-icon" type="button" title="Elegir icono"><span class="ico-slot"></span></button>
+      <input id="day-new-text" type="text" placeholder="Escribe algo y pulsa Enter…">
+    </div>
+    <div class="day-tools">
+      <button class="btn btn-mini" id="day-draw" type="button">✏️ Dibujar</button>
+      <button class="btn btn-mini" id="day-clear-ink" type="button">Borrar dibujo</button>
+      <button class="btn btn-mini btn-danger" id="day-clear-all" type="button">Vaciar día</button>
+    </div>
+  </div>
+</div>
+
+<!-- Buscador de iconos -->
+<div id="picker" class="overlay" hidden>
+  <div class="picker-panel" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+    <header class="picker-head">
+      <h2 id="picker-title">Elegir icono</h2>
+      <button class="x" type="button" data-close-picker aria-label="Cerrar">×</button>
+    </header>
+    <div class="search-wrap">
+      <span class="search-ico" aria-hidden="true">⌕</span>
+      <input id="picker-q" type="text" autocomplete="off" placeholder="Buscar: torta, regalo, perro, yoga…" aria-label="Buscar icono">
+      <button class="clear" id="picker-clear" type="button" aria-label="Limpiar">×</button>
+    </div>
+    <div class="tabs" id="picker-tabs" role="tablist"></div>
+    <div class="picker-body">
+      <div class="picker-grid" id="picker-grid" role="listbox" aria-label="Iconos"></div>
+      <p class="empty" id="picker-empty" hidden>Sin resultados. Prueba otra palabra.</p>
+    </div>
+    <footer class="picker-foot">
+      <span id="picker-count" class="hint"></span>
+      <button class="btn btn-mini" type="button" data-close-picker>Listo</button>
+    </footer>
+  </div>
+</div>
+
+<!-- Datos / copia de seguridad -->
+<div id="data-modal" class="overlay" hidden>
+  <div class="picker-panel narrow" role="dialog" aria-modal="true" aria-labelledby="data-title">
+    <header class="picker-head">
+      <h2 id="data-title">Tus datos</h2>
+      <button class="x" type="button" data-close-data aria-label="Cerrar">×</button>
+    </header>
+    <div class="pop-body">
+      <p class="hint">El calendario vive en este equipo (almacenamiento local del navegador). Exporta una copia si quieres llevarlo a otro ordenador.</p>
+      <div class="data-row">
+        <button class="btn" id="btn-export" type="button">Exportar copia (.json)</button>
+        <button class="btn" id="btn-import" type="button">Importar copia</button>
+        <input type="file" id="file-import" accept="application/json,.json" hidden>
+      </div>
+      <div class="data-row">
+        <button class="btn" id="btn-export-ics" type="button">Exportar mes (.ics)</button>
+        <button class="btn" id="btn-export-md" type="button">Exportar mes (.md)</button>
+      </div>
+      <hr>
+      <div class="data-row">
+        <label class="field grow">
+          <span class="field-lbl">Color del rotulador</span>
+          <input type="color" id="ink-color" value="#17512f">
+        </label>
+        <label class="field grow">
+          <span class="field-lbl">Primer día de la semana</span>
+          <select id="week-start">
+            <option value="0">Domingo</option>
+            <option value="1">Lunes</option>
+          </select>
+        </label>
+      </div>
+      <div class="data-row">
+        <button class="btn btn-danger" id="btn-reset" type="button">Borrar todo el calendario</button>
+      </div>
+      <p class="hint" id="storage-info"></p>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

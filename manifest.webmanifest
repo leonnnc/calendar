@@ -1,0 +1,29 @@
+{
+  "name": "Calendario — planificador de borrado en seco",
+  "short_name": "Calendario",
+  "description": "Calendario mensual con tipografía manuscrita, stickers ilustrados y buscador de iconos. Funciona sin conexión y guarda todo en tu equipo.",
+  "lang": "es",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "calendario-borrado-en-seco",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "background_color": "#eceeec",
+  "theme_color": "#17512f",
+  "categories": ["productivity", "lifestyle", "utilities"],
+  "icons": [
+    { "src": "assets/icons/favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Mes actual",
+      "url": "./index.html",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

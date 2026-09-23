@@ -1,0 +1,10 @@
+# Normaliza los finales de línea a LF para que el proyecto se vea
+# igual en Windows, macOS y Linux.
+* text=auto eol=lf
+
+# Binarios
+*.png binary
+*.jpg binary
+*.webp binary
+*.woff2 binary
+*.ico binary
