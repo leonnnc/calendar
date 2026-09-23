@@ -165,7 +165,12 @@ const neededClasses = ['cell', 'cell-items', 'chip', 'ink', 'num', 'add', 'row',
   'sec-title', 'empty', 'drawbar', 'drawing', 'today', 'other', 'weekend', 'done',
   'cell-stickers', 'sticker', 'sticker-box', 'sticker-anim', 'sticker-grip', 'st-fig',
   'sticker-bar', 'sbar-name', 'sbar-val', 'sbar-anim', 'sbar-select', 'icon-ghost',
-  'drop-target', 'ghost', 'sel', 'picker-tip'];
+  'drop-target', 'ghost', 'sel', 'picker-tip',
+  'intro', 'intro-card', 'intro-head', 'intro-hola', 'intro-form', 'intro-dos', 'campo',
+  'intro-registro', 'intro-links', 'intro-sep', 'link',
+  'intro-aviso', 'intro-pie', 'intro-btn', 'aviso-compartido',
+  'lista-compartidos', 'fila-compartido', 'panel-admin', 'panel-cifras', 'cifra',
+  'tabla-ip', 'field-grow'];
 const missingCss = neededClasses.filter((c) => css.indexOf('.' + c.trim()) < 0);
 ok(missingCss.length === 0, 'Todas las clases que usa app.js están definidas en app.css', missingCss.join(', '));
 
@@ -251,7 +256,7 @@ ok(shell.length >= 15, 'El service worker precarga el armazón completo', shell.
 ok(/addEventListener\('fetch'/.test(sw), 'El service worker intercepta peticiones');
 const version = (sw.match(/const VERSION = '([^']+)'/) || ['', ''])[1];
 ok(/^calendario-v\d+$/.test(version), 'El service worker declara una versión con formato válido', version);
-ok(version !== 'calendario-v1' && version !== 'calendario-v2',
+ok(version !== 'calendario-v1' && version !== 'calendario-v2' && version !== 'calendario-v3',
   'La versión del service worker se subió tras cambiar la app', version);
 ok(shell.includes('./js/app.js') && shell.includes('./css/app.css'),
   'El armazón precargado incluye la lógica y los estilos');
@@ -275,6 +280,145 @@ try {
 } catch (err) {
   ok(false, 'js/app.js tiene sintaxis válida', String(err.stderr || err.message).slice(0, 300));
 }
+
+/* ---------- 6. cuentas, nube, panel oculto y compartir ---------- */
+const fbjs = readFileSync(p('js', 'firebase.js'), 'utf8');
+const fbcfg = readFileSync(p('js', 'firebase-config.js'), 'utf8');
+const reglas = readFileSync(p('firestore.rules'), 'utf8');
+
+ok(/export const FIREBASE_CONFIG/.test(fbcfg), 'firebase-config.js declara la configuración del proyecto');
+const camposCfg = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+const sinValor = camposCfg.filter((c) => !new RegExp(c + ":\\s*'[^']+'").test(fbcfg));
+ok(sinValor.length === 0, 'La configuración tiene los 6 valores de Firebase', sinValor.join(', '));
+ok(/indexOf\('PEGA_AQUI'\)/.test(fbjs),
+  'La app sabe detectar que la configuración sigue sin rellenar');
+ok(/export const PANEL/.test(fbcfg) && /adminEmail/.test(fbcfg) && /clave:/.test(fbcfg),
+  'La configuración incluye la clave y el correo del panel');
+ok(/export const AJUSTES/.test(fbcfg) && /entradaObligatoria/.test(fbcfg),
+  'La configuración incluye si la entrada es obligatoria');
+
+['registrar', 'entrar', 'salir', 'recuperar', 'guardarPerfil', 'leerPerfil',
+  'leerCalendario', 'guardarCalendario', 'escucharCalendario', 'buscarUsuario',
+  'invitar', 'misCompartidos', 'invitadosMios', 'quitarCompartido', 'quitarInvitado',
+  'registrarVisita', 'visitas', 'contarVisitas', 'contarUsuarios'].forEach((f) => {
+  ok(new RegExp('export (async )?function ' + f + '\\b').test(fbjs),
+    'firebase.js ofrece ' + f + '()');
+});
+
+ok(/firebase-app\.js/.test(fbjs) && /firebase-auth\.js/.test(fbjs) && /firebase-firestore\.js/.test(fbjs),
+  'El SDK se carga bajo demanda desde el CDN');
+ok(/if \(!configurado\(\)\) return Promise\.resolve\(null\)/.test(fbjs),
+  'Sin configuración no se carga ni se toca nada de Firebase');
+ok(/createUserWithEmailAndPassword/.test(fbjs) && /signInWithEmailAndPassword/.test(fbjs),
+  'Las cuentas las gestiona Firebase Auth');
+ok(!/setItem\([^)]*clave/i.test(fbjs) && !/setItem\([^)]*password/i.test(fbjs),
+  'La contraseña no se guarda nunca en el equipo');
+ok(/updateProfile/.test(fbjs), 'El alias se guarda como nombre visible de la cuenta');
+ok(/ipwho\.is/.test(fbjs) && /api\.ipify\.org/.test(fbjs),
+  'La IP se pide a un servicio público, con un segundo de respaldo');
+ok(/getCountFromServer/.test(fbjs), 'Los contadores se piden con getCountFromServer');
+
+['users/{uid}', 'usuarios_publicos/{uid}', 'users/{uid}/calendario/{docId}',
+  'users/{uid}/invitados/{invitado}', 'compartidos/{invitado}/recibidos/{dueno}', 'visitas/{visita}']
+  .forEach((m) => ok(reglas.indexOf('match /' + m) > 0, 'Las reglas cubren /' + m));
+ok(/function esAdmin/.test(reglas), 'Las reglas distinguen la cuenta de administrador');
+ok(/allow read, update, delete: if esAdmin\(\)/.test(reglas),
+  'Solo el administrador puede leer la lista de IPs');
+ok(/rol == 'editar'/.test(reglas), 'Editar el calendario de otro exige invitación con permiso');
+ok(!/allow (read|write)[^:]*: if true\b/.test(reglas), 'Las reglas no dejan nada abierto a cualquiera');
+const bloquePublico = (reglas.match(/match \/usuarios_publicos[\s\S]*?\n    \}/) || [''])[0];
+ok(bloquePublico.indexOf('telefono') < 0 && bloquePublico.indexOf('apellidos') < 0,
+  'La copia pública no admite teléfono ni apellidos');
+ok(/hasOnly/.test(reglas), 'Las visitas solo aceptan los campos previstos');
+
+/* Regresión importante: en Firestore las colecciones ocupan las posiciones
+   IMPARES y los documentos las PARES. Un collection() con 2 segmentos o un
+   doc() con 3 compila perfectamente, pero el SDK rechaza la referencia antes
+   de salir a la red (era el fallo de «Compartidos conmigo»). */
+const malasColecciones = fbjs.match(/collection\(fb\.db,\s*'[^']+',\s*[^,)]+\)/g) || [];
+ok(malasColecciones.length === 0,
+  'Ninguna colección de Firestore con número de segmentos imposible', malasColecciones.join(' | '));
+const malosDocs = fbjs.match(/doc\(fb\.db,\s*'[^']+',\s*[^,)]+,\s*'[^']+'\)/g) || [];
+ok(malosDocs.length === 0,
+  'Ningún documento de Firestore con número de segmentos imposible', malosDocs.join(' | '));
+ok(/collection\(fb\.db, 'compartidos', st\.usuario\.uid, 'recibidos'\)/.test(fbjs) &&
+  /doc\(fb\.db, 'compartidos', destino\.uid, 'recibidos', yoSoy\)/.test(fbjs) &&
+  /doc\(fb\.db, 'compartidos', st\.usuario\.uid, 'recibidos', uidDueno\)/.test(fbjs),
+  'Las invitaciones se guardan en la subcolección «recibidos» (código)');
+ok(reglas.indexOf('match /compartidos/{invitado}/recibidos/{dueno}') > 0 &&
+  reglas.indexOf('/compartidos/$(request.auth.uid)/recibidos/$(dueno)') > 0,
+  'Las reglas usan exactamente esa misma ruta');
+ok(!/match \/compartidos\/\{[^}]+\}\/\{[^}]+\}\s*\{/.test(reglas),
+  'Ninguna regla apunta a una ruta de 3 segmentos (imposible en Firestore)');
+ok(/adminEmail: '[^']+'/.test(fbcfg) &&
+  new RegExp("token.email == '" + (fbcfg.match(/adminEmail: '([^']+)'/) || ['', ''])[1] + "'").test(reglas),
+  'El correo de administrador coincide en la configuración y en las reglas');
+
+ok(/from '\.\/firebase\.js'/.test(js), 'app.js usa el módulo de cuentas');
+ok(/from '\.\/firebase-config\.js'/.test(js), 'app.js lee la configuración del panel');
+ok(/function storeKey/.test(js) && /storeKey\(dueno\)/.test(js),
+  'Cada cuenta tiene su propio cajón en el equipo');
+ok(/toques >= 5/.test(js), 'El panel se abre con cinco toques en el logo');
+ok(/Nube\.clavePanel\(\)/.test(js), 'El panel pide su clave antes de abrirse');
+ok(/function soloVer/.test(js) && /soloLectura/.test(js),
+  'El calendario compartido sin permiso queda en solo lectura');
+ok(/verCalendarioDe/.test(js) && /volverAlMio/.test(js),
+  'Se puede abrir un calendario compartido y volver al propio');
+ok(/Nube\.registrarVisita/.test(js), 'Cada visita suma al contador');
+ok(/entradaObligatoria/.test(js) && /abrirIntro/.test(js), 'La entrada se decide según la configuración');
+/* Regresión: si no hay Firebase configurado, el atajo para seguir sin
+   cuenta tiene que estar visible o la app queda cerrada sin salida. */
+ok(/\$\('#intro-local'\)\.hidden = e\.configurado && Nube\.entradaObligatoria\(\)/.test(js),
+  'Sin Firebase configurado siempre queda la salida de seguir sin cuenta');
+ok(/#data-modal \.pop-body[\s\S]{0,120}overflow:auto/.test(css),
+  'Los paneles de contenido largo se pueden desplazar (si no, se corta el final)');
+
+ok(/id="intro" class="intro"/.test(html) && /id="intro-form"/.test(html), 'Hay pantalla de entrada');
+['in-alias', 'in-nombres', 'in-apellidos', 'in-correo', 'in-telefono', 'in-clave'].forEach((campo) => {
+  ok(html.indexOf('id="' + campo + '"') > 0, 'La entrada pide ' + campo);
+});
+ok(/id="in-clave" type="password"/.test(html), 'La contraseña se escribe en un campo oculto');
+ok(/id="in-correo" type="email"/.test(html), 'El correo se valida como correo');
+
+/* El orden pedido: bienvenida → correo y contraseña → botón → enlaces debajo. */
+const iHola = html.indexOf('intro-hola');
+const iCorreo = html.indexOf('id="in-correo"');
+const iClave = html.indexOf('id="in-clave"');
+const iBoton = html.indexOf('id="intro-btn"');
+const iEnlaces = html.indexOf('intro-links');
+ok(iHola > 0 && iHola < iCorreo && iCorreo < iClave && iClave < iBoton && iBoton < iEnlaces,
+  'La entrada va: bienvenida, correo, contraseña, botón y enlaces debajo del botón');
+ok(html.indexOf('Bienvenido a') > 0 && html.indexOf('>Calendario<') > 0,
+  'La pantalla da la bienvenida antes de pedir nada');
+const bloqueEnlaces = (html.match(/<p class="intro-links">[\s\S]*?<\/p>/) || [''])[0];
+ok(bloqueEnlaces.indexOf('intro-olvido') > 0 && bloqueEnlaces.indexOf('intro-link-cuenta') > 0,
+  '«Olvidaste la contraseña» y «Crear cuenta» van en la misma línea');
+ok(/id="intro-registro" hidden/.test(html), 'Los datos de inscripción empiezan ocultos');
+ok(/let modoIntro = 'entrar'/.test(js), 'La app abre en la bienvenida y el acceso, no en la inscripción');
+ok(html.indexOf('intro-tabs') < 0 && js.indexOf('intro-tabs') < 0,
+  'Ya no hay pestañas: esa línea de enlaces hace su papel');
+ok(/body\.intro-abierto\{overflow:hidden\}/.test(css), 'Con la entrada delante, el fondo no se desplaza');
+ok((js.match(/classList\.remove\('intro-abierto'\)/g) || []).length >= 2,
+  'Al entrar se vuelve a permitir el desplazamiento');
+ok(/id="panel" class="overlay"/.test(html) && html.indexOf('id="panel-visitas"') > 0 &&
+  html.indexOf('id="panel-lista"') > 0 && html.indexOf('id="panel-input"') > 0,
+  'El panel trae clave, contador y lista de IPs');
+ok(html.indexOf('id="lista-compartidos"') > 0 && html.indexOf('id="lista-invitados"') > 0 &&
+  html.indexOf('id="inv-buscar"') > 0,
+  'Hay zona para invitar y para ver lo que te comparten');
+/* Regresión: «Datos» y el alias eran dos botones que abrían el mismo modal. */
+ok(html.indexOf('btn-cuenta') < 0 && js.indexOf('btn-cuenta') < 0,
+  'Un solo botón lleva a los datos y a la cuenta (antes había dos)');
+ok((js.match(/\$\('#btn-data'\)\.addEventListener/g) || []).length === 1,
+  'Ese botón se conecta una sola vez');
+ok(/btn\.textContent = 'Datos · '/.test(js), 'El botón enseña con qué alias has entrado');
+ok(js.indexOf('Las IPs son datos personales') > 0,
+  'La app avisa de que las IPs son datos personales');
+
+ok(shell.indexOf('./js/firebase.js') >= 0, 'El armazón precargado incluye el módulo de cuentas');
+ok(shell.indexOf('./js/firebase-config.js') < 0, 'La configuración queda fuera del armazón precargado');
+ok(sw.indexOf('firebase-config.js') > 0 && /endsWith\('\/js\/firebase-config\.js'\)/.test(sw),
+  'El service worker sirve la configuración siempre fresca (sin caché)');
 
 /* ---------- resumen ---------- */
 console.log('');

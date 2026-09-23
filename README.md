@@ -9,8 +9,11 @@ Funciona en macOS y Windows como **PWA instalable** y guarda todo **en tu equipo
 index.html               · la app completa (armazón de la interfaz)
 manifest.webmanifest     · datos de instalación (PWA)
 sw.js                    · service worker: funciona sin conexión
+firestore.rules          · reglas de seguridad de la base de datos (¡publicar!)
 css/app.css              · todos los estilos, incluido el modo impresión
-js/app.js                · lógica: mes, días, listas, dibujo, datos
+js/app.js                · lógica: mes, días, listas, dibujo, cuentas y datos
+js/firebase.js           · cuentas, nube, visitas y calendarios compartidos
+js/firebase-config.js    · TUS datos de Firebase (lo único que hay que rellenar)
 js/stickers.js           · set propio de stickers ilustrados (SVG)
 js/emoji.js              · catálogo de emoji con nombres en español
 assets/fonts/            · 6 tipografías manuscritas autoalojadas (.woff2)
@@ -32,6 +35,80 @@ de escritorio, con su icono y ventana propia, y ya funciona sin conexión.
 
 > Hace falta servirlo por `http://` (no abrir el archivo con doble clic): el
 > service worker y la instalación lo requieren. Cualquier servidor estático vale.
+
+## Poner en marcha la base de datos (una sola vez)
+
+Mientras no hagas esto, la app funciona igual pero **en local**: sin cuentas,
+sin nube y sin compartir. La pantalla de entrada lo avisa.
+
+1. Crea el proyecto en <https://console.firebase.google.com> (sin necesidad de
+   Google Analytics).
+2. **Authentication** → Comenzar → *Sign-in method* → habilita
+   **Correo electrónico/contraseña**.
+3. **Firestore Database** → Crear base de datos → modo **producción**.
+4. Rueda dentada → *Configuración del proyecto* → **Tus apps** → `</>` (Web) →
+   registra la app y copia el bloque `firebaseConfig`.
+5. Pega ese bloque en [js/firebase-config.js](js/firebase-config.js) (arriba del
+   todo) y cambia también `PANEL.clave` y `PANEL.adminEmail`.
+6. Copia [firestore.rules](firestore.rules), pégalo en **Firestore → Reglas** y
+   pulsa **Publicar** (cambia antes `tu-correo@ejemplo.com` por tu correo).
+7. Recarga la app y crea tu cuenta. Si algo falla, el mensaje de la pantalla de
+   entrada dice exactamente qué falta (casi siempre, habilitar Authentication
+   o publicar las reglas).
+
+## Cuentas: entrada, nube y compartir
+
+La app abre con una **pantalla de entrada** minimalista (misma tipografía y
+misma paleta que el calendario) con dos pestañas:
+
+- **Crear cuenta:** alias, nombres, apellidos, correo, teléfono y contraseña.
+- **Entrar:** correo y contraseña, con «Olvidé la contraseña».
+
+La contraseña **la gestiona Firebase**: la app no la guarda en ningún sitio
+(ni en el equipo ni en la base de datos). Del perfil se guardan dos copias
+distintas, a propósito:
+
+| Documento | Qué tiene | Quién lo ve |
+|---|---|---|
+| `users/{uid}` | alias, nombres, apellidos, correo, **teléfono** | solo tú |
+| `usuarios_publicos/{uid}` | **solo** alias y correo | cualquiera con sesión |
+
+Así tus apellidos y tu teléfono no quedan visibles para nadie. Con sesión
+iniciada, tu calendario se guarda en tu cuenta y se sincroniza solo (con
+escucha en tiempo real, para verlo igual en dos equipos).
+
+**Compartir.** En **Datos → Compartir mi calendario con…** se escribe el alias
+o el correo exacto de otra persona registrada y se elige el permiso:
+
+- **Solo ver** → la abre en modo solo lectura (la interfaz lo bloquea y, sobre
+  todo, lo impiden las reglas de Firestore).
+- **Puede editar** → puede añadir días, iconos y notas en tu calendario.
+
+En **Compartidos conmigo** aparece lo que te han compartido, con un botón
+**Abrir** (y un aviso en la parte superior para volver a tu calendario) y otro
+para quitarlo.
+
+## Panel oculto
+
+Dale **cinco toques seguidos al logotipo** de la cabecera (dentro de 2,5
+segundos): se abre un panel que pide una clave y muestra
+
+- el **contador de visitas** registradas,
+- las **visitas de este equipo**,
+- los **usuarios registrados**,
+- y la **lista de IPs** con lugar, navegador y fecha, descargable en `.csv`.
+
+Dos cosas importantes y honestas:
+
+1. La clave del panel está en `js/firebase-config.js` y **se ve en el código**:
+   es una puerta discreta, no seguridad. Lo que protege de verdad son las
+   reglas de Firestore y la cuenta de administrador (`PANEL.adminEmail`), que
+   es la única que puede leer la lista de IPs.
+2. Para conocer la IP de quien visita una web estática hay que preguntársela a
+   un servicio externo: la app usa `ipwho.is` (con `api.ipify.org` de
+   respaldo). Eso significa que **la IP de tus visitantes pasa por ese
+   servicio**. Una IP es un dato personal: avísalo en tu web y úsala solo para
+   lo que hayas contado.
 
 ## Qué hace
 
@@ -112,14 +189,18 @@ interfaz, lista para imprimir o guardar en PDF.
 ```bash
 node tools/test-app.mjs
 ```
-Valida el catálogo de iconos y sus SVG, el buscador, que todos los `id` y clases
-que usa el JavaScript existan en el HTML y el CSS, que cada movimiento tenga sus
-`@keyframes`, el manifiesto, el service worker, las fuentes y la sintaxis del
-módulo principal. No necesita navegador.
+Son **172 comprobaciones**: el catálogo de iconos y sus SVG, el buscador, que
+todos los `id` y clases que usa el JavaScript existan en el HTML y el CSS, que
+cada movimiento tenga sus `@keyframes`, el manifiesto, el service worker, las
+fuentes, la sintaxis del módulo principal, y que las piezas de cuentas, panel y
+compartir estén todas (incluida la de que **la contraseña no se guarda nunca**).
+No necesita navegador.
 
 Si tocas cualquier archivo de la app, sube `VERSION` en `sw.js`
-(`calendario-v3` → `calendario-v4`): así los navegadores que ya la visitaron
-descartan la copia antigua en caché.
+(`calendario-v5` → `calendario-v6`): así los navegadores que ya la visitaron
+descartan la copia antigua en caché. La excepción es
+`js/firebase-config.js`, que el service worker sirve siempre fresco a propósito:
+si se cacheara, pegar tus datos de Firebase no surtiría efecto y parecería roto.
 
 ## Detalles técnicos
 
@@ -136,5 +217,13 @@ descartan la copia antigua en caché.
   en píxeles, así el mes se adapta al tamaño de la pantalla), su escala, su giro
   y su movimiento. El arrastre usa Pointer Events, de modo que funciona igual con
   ratón, dedo o lápiz.
+- Con cuentas, cada persona tiene **su propio cajón** en el equipo: la clave del
+  almacén local es `calendario-borrado-v1:<uid>` (`…:local` para quien usa la app
+  sin cuenta). Al entrar con tu cuenta se carga el cajón de tu uid y se
+  sincroniza con `users/{uid}/calendario/main`.
+- Si los dos lados (nube y equipo) tienen contenido, la app **pregunta** cuál
+  conservar y guarda el otro como copia: nunca pisa un calendario en silencio.
+- El SDK de Firebase no se carga hasta que hace falta y solo si hay
+  configuración: sin `apiKey` no se pide nada a la red (ni las IPs).
 - Los iconos `assets/icons/*.png` se generan por código con
   `node tools/make-icons.mjs` (codificador PNG propio, sin dependencias).

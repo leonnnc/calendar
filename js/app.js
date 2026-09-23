@@ -5,6 +5,8 @@
 
 import { STICKERS, STICKER_CATS, normKey } from './stickers.js';
 import { EMOJI, EMOJI_CATS } from './emoji.js';
+import * as Nube from './firebase.js';
+import { PANEL } from './firebase-config.js';
 
 /* ---------- atajos DOM ---------- */
 const $  = (s, r = document) => r.querySelector(s);
@@ -22,6 +24,15 @@ const esc = (s) => String(s == null ? '' : s)
 
 /* ---------- constantes ---------- */
 const STORE_KEY = 'calendario-borrado-v1';
+/* Con cuentas, cada persona tiene su propio cajón: la clave del almacén
+   lleva su uid. «local» es el cajón de quien usa la app sin cuenta. */
+let dueno = 'local';
+let miUid = '';
+let soloLectura = false;
+let mirandoA = null;          // { uid, alias, rol } si ves el de otra persona
+function storeKey(uid) {
+  return STORE_KEY + (uid && uid !== 'local' ? ':' + uid : '');
+}
 const CHECK_SVG = '<svg viewBox="0 0 32 32"><path d="M7 18.5l6.8 6.6L26 9.4" fill="none" stroke="#17512f" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 const FONTS = [
@@ -100,27 +111,32 @@ let state = load();
 const today = new Date();
 const view = { y: today.getFullYear(), m: today.getMonth() };
 
+/* Deja cualquier objeto (del almacén o de la nube) con la forma esperada. */
+function normalizar(data) {
+  const s = clone(DEF);
+  if (!data || typeof data !== 'object') return s;
+  s.v = data.v || 1;
+  Object.assign(s.settings, data.settings || {});
+  s.settings.collapsed = Object.assign({ todo: false, grocery: false }, (data.settings || {}).collapsed || {});
+  s.days = (data.days && typeof data.days === 'object') ? data.days : {};
+  Object.keys(s.days).forEach((k) => {
+    const r = s.days[k];
+    if (!r || typeof r !== 'object') { delete s.days[k]; return; }
+    if (!Array.isArray(r.items)) r.items = [];
+    r.stickers = Array.isArray(r.stickers) ? r.stickers.map(normSticker).filter(Boolean) : [];
+    if (dayEmpty(r)) delete s.days[k];
+  });
+  s.todo = Array.isArray(data.todo) ? data.todo : [];
+  s.grocery = Array.isArray(data.grocery) ? data.grocery : [];
+  s.recents = Array.isArray(data.recents) ? data.recents : [];
+  return s;
+}
+
 function load() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = localStorage.getItem(storeKey(dueno));
     if (!raw) return clone(DEF);
-    const data = JSON.parse(raw);
-    const s = clone(DEF);
-    s.v = data.v || 1;
-    Object.assign(s.settings, data.settings || {});
-    s.settings.collapsed = Object.assign({ todo: false, grocery: false }, (data.settings || {}).collapsed || {});
-    s.days = data.days || {};
-    Object.keys(s.days).forEach((k) => {
-      const r = s.days[k];
-      if (!r || typeof r !== 'object') { delete s.days[k]; return; }
-      if (!Array.isArray(r.items)) r.items = [];
-      r.stickers = Array.isArray(r.stickers) ? r.stickers.map(normSticker).filter(Boolean) : [];
-      if (dayEmpty(r)) delete s.days[k];
-    });
-    s.todo = Array.isArray(data.todo) ? data.todo : [];
-    s.grocery = Array.isArray(data.grocery) ? data.grocery : [];
-    s.recents = Array.isArray(data.recents) ? data.recents : [];
-    return s;
+    return normalizar(JSON.parse(raw));
   } catch (err) {
     console.warn('No se pudo leer el almacenamiento, se empieza de cero.', err);
     return clone(DEF);
@@ -152,14 +168,16 @@ function normStickers() {
 
 let saveTimer = 0;
 function save() {
+  if (soloLectura) return;      // el calendario de otra persona no se toca
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+      localStorage.setItem(storeKey(dueno), JSON.stringify(state));
     } catch (err) {
       toast('No se pudo guardar: almacenamiento lleno');
       console.warn(err);
     }
+    subirNube();
   }, 180);
 }
 
@@ -1484,7 +1502,7 @@ function exportMD() {
 
 function storageInfo() {
   let bytes = 0;
-  try { bytes = (localStorage.getItem(STORE_KEY) || '').length; } catch (e) { /* ignorar */ }
+  try { bytes = (localStorage.getItem(storeKey(dueno)) || '').length; } catch (e) { /* ignorar */ }
   const kb = (bytes / 1024).toFixed(1);
   $('#storage-info').textContent = 'Ocupa ' + kb + ' KB en este equipo · ' +
     Object.keys(state.days).filter(hasContent).length + ' días con contenido · ' +
@@ -1503,6 +1521,439 @@ function resetAll() {
   updateHint();
   storageInfo();
   toast('Calendario vacío');
+}
+
+/* ============================================================
+   Cuentas, nube, panel oculto y calendarios compartidos
+   ============================================================ */
+let subidaTimer = 0;
+let aplicandoRemoto = false;
+let ultimoSubido = 0;
+let modoIntro = 'entrar';    // la app abre en la bienvenida y el acceso
+let panelFilas = [];
+
+function nubeLista() { return Nube.configurado(); }
+
+function guardarLocal() {
+  try { localStorage.setItem(storeKey(dueno), JSON.stringify(state)); } catch (e) { /* nada */ }
+}
+
+/* Sube el calendario con un pequeño retraso: escribir rápido no dispara
+   una subida por cada tecla. */
+function subirNube() {
+  if (!nubeLista() || !miUid || soloLectura) return;
+  const ajeno = dueno !== miUid;
+  if (ajeno && !(mirandoA && mirandoA.rol === 'editar')) return;
+  clearTimeout(subidaTimer);
+  subidaTimer = setTimeout(() => { subirNubeAhora(); }, Nube.retrasoSubida());
+}
+
+async function subirNubeAhora() {
+  if (!nubeLista() || !miUid || soloLectura) return false;
+  try {
+    await Nube.guardarCalendario(dueno, state);
+    ultimoSubido = Date.now();
+    return true;
+  } catch (err) {
+    toast('No se pudo subir: ' + Nube.mensaje(err));
+    return false;
+  }
+}
+
+/* Trae lo que hay en la nube. Si los dos lados tienen contenido se
+   pregunta antes de pisar nada. */
+async function bajarNube(uid) {
+  const datos = await Nube.leerCalendario(uid);
+  if (!datos || !datos.estado) return false;
+  const remoto = normalizar(datos.estado);
+  const mioTiene = Object.keys(state.days).length || state.todo.length || state.grocery.length;
+  const suyoTiene = Object.keys(remoto.days).length || remoto.todo.length || remoto.grocery.length;
+  if (!suyoTiene) return false;
+  if (!mioTiene) {
+    aplicandoRemoto = true;
+    state = remoto;
+    guardarLocal();
+    aplicandoRemoto = false;
+    return true;
+  }
+  const usarNube = window.confirm(
+    'Tu cuenta ya tiene un calendario guardado en la nube.\n\n' +
+    'Aceptar = abrir el de la nube (el de este equipo se guarda aparte, como copia).\n' +
+    'Cancelar = quedarte con el de este equipo y subirlo a la nube.');
+  if (usarNube) {
+    try { localStorage.setItem(storeKey(dueno) + ':copia-local', JSON.stringify(state)); } catch (e) { /* nada */ }
+    aplicandoRemoto = true;
+    state = remoto;
+    guardarLocal();
+    aplicandoRemoto = false;
+  } else {
+    await subirNubeAhora();
+  }
+  return true;
+}
+
+/* ---------- cuenta ---------- */
+function pintarCuenta(e) {
+  /* Un solo botón para todo lo tuyo: los datos, la cuenta y lo compartido.
+     Antes había dos botones (Datos y tu alias) que abrían lo mismo. */
+  const btn = $('#btn-data');
+  if (e.usuario) {
+    btn.textContent = 'Datos · ' + (e.alias || e.correo);
+    btn.title = 'Tus datos, tu cuenta (' + e.correo + ') y los calendarios compartidos' +
+      (e.esAdmin ? ' · administrador' : '');
+  } else {
+    btn.textContent = 'Datos';
+    btn.title = 'Tus datos y los calendarios compartidos';
+  }
+  $('#btn-panel').hidden = !(e.usuario && e.esAdmin);
+  if (e.usuario) {
+    $('#cuenta-linea').textContent = 'Has entrado como «' + (e.alias || e.correo) + '» (' + e.correo + ').';
+  } else if (!e.configurado) {
+    $('#cuenta-linea').textContent = 'Sin Firebase configurado: el calendario vive solo en este equipo.';
+  } else {
+    $('#cuenta-linea').textContent = 'Sin cuenta. Entra para guardar tu calendario en la nube y poder compartirlo.';
+  }
+  const pie = $('.foot-note');
+  if (pie) {
+    pie.textContent = e.usuario
+      ? 'Tu calendario se guarda en este equipo y en tu cuenta (proyecto ' + (e.proyecto || 'Firebase') + ').'
+      : 'Todo se guarda en este equipo. No se envía nada a internet.';
+  }
+}
+
+async function entrarApp(u) {
+  miUid = u.uid;
+  dueno = u.uid;
+  soloLectura = false;
+  mirandoA = null;
+  document.body.classList.remove('mirando-compartido');
+  $('#compartido-banner').hidden = true;
+  state = load();
+  try { await Nube.guardarPerfil({ alias: u.alias || '', correo: u.correo || '' }); } catch (e) { /* nada */ }
+  try { await bajarNube(u.uid); } catch (err) { toast(Nube.mensaje(err)); }
+  Nube.escucharCalendario(u.uid, (doc) => {
+    if (aplicandoRemoto || !doc || !doc.estado) return;
+    if (Date.now() - ultimoSubido < 5000) return;    // es lo que acabamos de subir
+    aplicandoRemoto = true;
+    state = normalizar(doc.estado);
+    guardarLocal();
+    aplicandoRemoto = false;
+    renderSheet(); updateHint(); storageInfo();
+  });
+  $('#intro').hidden = true;
+  document.body.classList.remove('intro-abierto');
+  pintarCuenta(Nube.estado());
+  renderSheet(); updateHint(); storageInfo();
+}
+
+async function salirApp() {
+  clearTimeout(subidaTimer);
+  modoIntro = 'entrar';
+  await Nube.salir();
+  miUid = ''; dueno = 'local'; soloLectura = false; mirandoA = null;
+  document.body.classList.remove('mirando-compartido');
+  $('#compartido-banner').hidden = true;
+  state = load();
+  pintarCuenta(Nube.estado());
+  renderSheet(); updateHint(); storageInfo();
+  abrirIntro();
+}
+
+/* ---------- pantalla de entrada ---------- */
+function abrirIntro() {
+  const e = Nube.estado();
+  const registro = modoIntro === 'crear';
+  $('#intro-registro').hidden = !registro;
+  $('#intro-btn').textContent = registro ? 'Crear cuenta' : 'Entrar';
+  /* La línea de abajo del botón: en el acceso ofrece las dos salidas
+     (contraseña olvidada · crear cuenta); al inscribirse, volver. */
+  $('#intro-olvido').hidden = registro;
+  $('#intro-sep-olvido').hidden = registro;
+  $('#intro-link-cuenta').textContent = registro ? 'Ya tengo cuenta' : 'Crear cuenta';
+  /* El atajo para seguir sin cuenta solo desaparece cuando de verdad se
+     puede crear una: con Firebase configurado y entrada obligatoria.
+     Si no hay configuración, tiene que estar SIEMPRE: si no, la app
+     quedaría cerrada sin manera de entrar. */
+  $('#intro-local').hidden = e.configurado && Nube.entradaObligatoria();
+  const aviso = $('#intro-aviso');
+  if (!e.configurado) {
+    aviso.classList.add('info');
+    aviso.textContent = 'Falta configurar Firebase: abre js/firebase-config.js y pega los datos de tu proyecto (las instrucciones están ahí mismo).';
+  } else {
+    aviso.classList.remove('info');
+    aviso.textContent = '';
+  }
+  $('#intro').hidden = false;
+  document.body.classList.add('intro-abierto');
+}
+
+function validarIntro() {
+  const correo = $('#in-correo').value.trim();
+  const clave = $('#in-clave').value;
+  if (correo.indexOf('@') < 1 || correo.indexOf('.') < 0) return 'Escribe un correo válido.';
+  if (clave.length < 6) return 'La contraseña necesita al menos 6 caracteres.';
+  if (modoIntro === 'crear') {
+    if (!$('#in-alias').value.trim()) return 'Pon un alias: es el nombre con el que te verán los demás.';
+    if (!$('#in-nombres').value.trim() || !$('#in-apellidos').value.trim()) return 'Escribe tus nombres y tus apellidos.';
+    if ($('#in-telefono').value.trim().length < 6) return 'Escribe un teléfono de contacto.';
+  }
+  return '';
+}
+
+async function enviarIntro(ev) {
+  if (ev) ev.preventDefault();
+  const aviso = $('#intro-aviso');
+  const btn = $('#intro-btn');
+  const texto = btn.textContent;
+  const fallo = validarIntro();
+  if (fallo) { aviso.classList.remove('info'); aviso.textContent = fallo; return; }
+  if (!Nube.configurado()) {
+    aviso.classList.add('info');
+    aviso.textContent = 'Todavía no hay Firebase configurado, así que no se pueden crear cuentas. Rellena js/firebase-config.js.';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = modoIntro === 'crear' ? 'Creando…' : 'Entrando…';
+  aviso.classList.remove('info');
+  aviso.textContent = '';
+  try {
+    if (modoIntro === 'crear') {
+      await Nube.registrar({
+        alias: $('#in-alias').value.trim(),
+        nombres: $('#in-nombres').value.trim(),
+        apellidos: $('#in-apellidos').value.trim(),
+        telefono: $('#in-telefono').value.trim(),
+        correo: $('#in-correo').value.trim(),
+        clave: $('#in-clave').value,
+      });
+      toast('Cuenta creada. ¡Bienvenido!');
+    } else {
+      await Nube.entrar($('#in-correo').value, $('#in-clave').value);
+      toast('Hola otra vez');
+    }
+    $('#in-clave').value = '';
+    await entrarApp(Nube.estado().usuario);
+  } catch (err) {
+    aviso.textContent = Nube.mensaje(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = texto;
+  }
+}
+
+/* ---------- panel oculto (cinco toques en el logo) ---------- */
+function abrirPanel() {
+  $('#panel').hidden = false;
+  $('#panel-clave').hidden = false;
+  $('#panel-datos').hidden = true;
+  $('#panel-input').value = '';
+  $('#panel-error').textContent = '';
+  $('#panel-equipo').textContent = String(Nube.visitasEnEsteEquipo());
+  setTimeout(() => $('#panel-input').focus(), 60);
+}
+function cerrarPanel() { $('#panel').hidden = true; }
+
+function pintarPanel() {
+  const cuerpo = $('#panel-lista');
+  cuerpo.textContent = '';
+  if (!panelFilas.length) {
+    const tr = el('tr');
+    const td = el('td', null, 'Sin visitas registradas todavía.');
+    td.colSpan = 4;
+    tr.append(td);
+    cuerpo.append(tr);
+    return;
+  }
+  panelFilas.forEach((v) => {
+    const tr = el('tr');
+    tr.append(el('td', 'ip', v.ip || '—'));
+    const lugar = [v.ciudad, v.pais].filter(Boolean).join(', ') || '—';
+    tr.append(el('td', null, lugar));
+    tr.append(el('td', null, [v.navegador, v.sistema].filter(Boolean).join(' · ') || '—'));
+    const cuando = v.fecha ? new Date(v.fecha).toLocaleString() : '—';
+    tr.append(el('td', null, cuando));
+    cuerpo.append(tr);
+  });
+}
+
+async function cargarPanel() {
+  const aviso = $('#panel-aviso');
+  const e = Nube.estado();
+  $('#panel-equipo').textContent = String(Nube.visitasEnEsteEquipo());
+  if (!e.configurado) {
+    panelFilas = [];
+    pintarPanel();
+    aviso.textContent = 'Sin Firebase configurado solo se puede contar las visitas de este equipo.';
+    return;
+  }
+  if (!e.usuario) {
+    panelFilas = [];
+    pintarPanel();
+    aviso.textContent = 'Entra con tu cuenta para leer los datos de la nube.';
+    return;
+  }
+  $('#panel-visitas').textContent = '…';
+  $('#panel-usuarios').textContent = '…';
+  try { $('#panel-usuarios').textContent = String(await Nube.contarUsuarios()); }
+  catch (err) { $('#panel-usuarios').textContent = '—'; }
+  if (!e.esAdmin) {
+    $('#panel-visitas').textContent = '—';
+    panelFilas = [];
+    pintarPanel();
+    aviso.textContent = 'La lista de IPs solo la ve la cuenta de administrador. Pon tu correo en PANEL.adminEmail (js/firebase-config.js) y el mismo en firestore.rules.';
+    return;
+  }
+  try {
+    $('#panel-visitas').textContent = String(await Nube.contarVisitas());
+    panelFilas = await Nube.visitas(PANEL.limite || 60);
+    pintarPanel();
+    aviso.textContent = panelFilas.length + ' visita(s) en la lista. Las IPs son datos personales: úsalas solo para lo que hayas avisado en la app.';
+  } catch (err) {
+    $('#panel-visitas').textContent = '—';
+    aviso.textContent = Nube.mensaje(err);
+  }
+}
+
+function csvPanel() {
+  if (!panelFilas.length) { toast('No hay nada que descargar'); return; }
+  const cab = ['fecha', 'ip', 'pais', 'ciudad', 'region', 'proveedor', 'navegador', 'sistema', 'idioma', 'pantalla', 'zona', 'uid'];
+  const lineas = [cab.join(',')];
+  panelFilas.forEach((v) => {
+    const fila = [
+      v.fecha ? new Date(v.fecha).toISOString() : '',
+      v.ip || '', v.pais || '', v.ciudad || '', v.region || '', v.proveedor || '',
+      v.navegador || '', v.sistema || '', v.idioma || '', v.pantalla || '', v.zona || '', v.uid || '',
+    ];
+    lineas.push(fila.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(','));
+  });
+  download('visitas-' + keyOf(new Date()) + '.csv', lineas.join('\r\n'), 'text/csv;charset=utf-8');
+  toast('Lista descargada');
+}
+
+/* ---------- compartir ---------- */
+async function invitarDesdeFormulario() {
+  const aviso = $('#inv-aviso');
+  const q = $('#inv-buscar').value.trim();
+  if (!q) { aviso.textContent = 'Escribe el alias o el correo exacto de la persona.'; return; }
+  aviso.textContent = 'Buscando…';
+  try {
+    const gente = await Nube.buscarUsuario(q);
+    if (!gente.length) {
+      aviso.textContent = 'No encuentro a nadie con «' + q + '». Esa persona tiene que crear su cuenta primero.';
+      return;
+    }
+    const quien = gente[0];
+    const rol = $('#inv-rol').value;
+    await Nube.invitar(quien, rol, Nube.estado().alias);
+    aviso.textContent = 'Hecho: «' + (quien.alias || quien.correo) + '» ya puede abrir tu calendario (' +
+      (rol === 'editar' ? 'puede editar' : 'solo ver') + ').';
+    $('#inv-buscar').value = '';
+    refrescarCompartidos();
+  } catch (err) {
+    aviso.textContent = Nube.mensaje(err);
+  }
+}
+
+async function refrescarCompartidos() {
+  if (!Nube.estado().usuario) {
+    $('#lista-invitados').textContent = '';
+    $('#lista-compartidos').textContent = '';
+    $('#inv-aviso').textContent = '';
+    $('#comp-aviso').textContent = 'Entra con tu cuenta para compartir tu calendario con otras personas.';
+    return;
+  }
+  try {
+    const dados = await Nube.invitadosMios();
+    const ul = $('#lista-invitados');
+    ul.textContent = '';
+    dados.forEach((d) => {
+      const li = el('li', 'fila-compartido');
+      li.append(el('span', 'quien', (d.alias || d.correo || 'alguien') + ' · ' + (d.correo || '')));
+      li.append(el('span', 'rol' + (d.rol === 'editar' ? ' editar' : ''), d.rol === 'editar' ? 'edita' : 'solo ve'));
+      const del = el('button', 'btn btn-mini btn-danger', 'Quitar');
+      del.type = 'button';
+      del.addEventListener('click', async () => {
+        try { await Nube.quitarInvitado(d.para); await refrescarCompartidos(); toast('Invitación retirada'); }
+        catch (err) { toast(Nube.mensaje(err)); }
+      });
+      li.append(del);
+      ul.append(li);
+    });
+  } catch (err) {
+    $('#inv-aviso').textContent = Nube.mensaje(err);
+  }
+
+  try {
+    const mios = await Nube.misCompartidos();
+    const ul2 = $('#lista-compartidos');
+    ul2.textContent = '';
+    if (!mios.length) $('#comp-aviso').textContent = 'Nadie te ha compartido un calendario todavía.';
+    else $('#comp-aviso').textContent = '';
+    mios.forEach((d) => {
+      const li = el('li', 'fila-compartido');
+      li.append(el('span', 'quien', d.alias || d.correo || 'alguien'));
+      li.append(el('span', 'rol' + (d.rol === 'editar' ? ' editar' : ''), d.rol === 'editar' ? 'puedo editar' : 'solo ver'));
+      const abrir = el('button', 'btn btn-mini', 'Abrir');
+      abrir.type = 'button';
+      abrir.addEventListener('click', () => verCalendarioDe(d.de, d.alias || d.correo, d.rol));
+      const del = el('button', 'btn btn-mini btn-danger', 'Quitar');
+      del.type = 'button';
+      del.addEventListener('click', async () => {
+        try { await Nube.quitarCompartido(d.de); await refrescarCompartidos(); toast('Calendario quitado'); }
+        catch (err) { toast(Nube.mensaje(err)); }
+      });
+      li.append(abrir, del);
+      ul2.append(li);
+    });
+  } catch (err) {
+    $('#comp-aviso').textContent = Nube.mensaje(err);
+  }
+}
+
+async function verCalendarioDe(uid, alias, rol) {
+  try {
+    const datos = await Nube.leerCalendario(uid);
+    if (!datos || !datos.estado) { toast('Ese calendario todavía está vacío'); return; }
+    mirandoA = { uid, alias: alias || 'otra persona', rol: rol === 'editar' ? 'editar' : 'ver' };
+    soloLectura = mirandoA.rol !== 'editar';
+    dueno = uid;
+    state = normalizar(datos.estado);
+    guardarLocal();
+    $('#data-modal').hidden = true;
+    document.body.classList.add('mirando-compartido');
+    const ban = $('#compartido-banner');
+    ban.hidden = false;
+    ban.classList.toggle('solo-ver', soloLectura);
+    $('#compartido-txt').textContent = soloLectura
+      ? 'Estás viendo el calendario de «' + mirandoA.alias + '» en modo solo lectura.'
+      : 'Estás editando el calendario de «' + mirandoA.alias + '». Los cambios los verá esa persona.';
+    closeEditor(); stopDraw(); clearSelection();
+    renderSheet(); updateHint(); storageInfo();
+    toast(soloLectura ? 'Calendario compartido (solo lectura)' : 'Calendario compartido (puedes editar)');
+  } catch (err) {
+    toast(Nube.mensaje(err));
+  }
+}
+
+function volverAlMio() {
+  mirandoA = null;
+  soloLectura = false;
+  dueno = miUid || 'local';
+  state = load();
+  document.body.classList.remove('mirando-compartido');
+  $('#compartido-banner').hidden = true;
+  closeEditor(); stopDraw(); clearSelection();
+  renderSheet(); updateHint(); storageInfo();
+  toast('De vuelta a tu calendario');
+}
+
+/* Devuelve true (y avisa) cuando el calendario abierto es de otra
+   persona y no tenemos permiso de edición. La regla de Firestore es la
+   que manda de verdad; esto solo evita que la interfaz lo intente. */
+function soloVer() {
+  if (!soloLectura) return false;
+  toast('Solo lectura: este calendario es de otra persona');
+  return true;
 }
 
 /* ---------- conexión de eventos ---------- */
@@ -1549,6 +2000,7 @@ function wireAll() {
   $('#btn-data').addEventListener('click', () => {
     storageInfo();
     $('#data-modal').hidden = false;
+    refrescarCompartidos();
   });
 
   /* --- navegación --- */
@@ -1568,6 +2020,7 @@ function wireAll() {
   /* --- cuadrícula --- */
   $('#grid').addEventListener('pointerdown', (e) => {
     if (drawDay) return;
+    if (soloVer()) return;
     const grip = e.target.closest('.sticker-grip');
     if (grip) {
       e.preventDefault();
@@ -1586,7 +2039,7 @@ function wireAll() {
   /* La rueda del ratón sobre un icono lo agranda o lo reduce. */
   $('#grid').addEventListener('wheel', (e) => {
     const node = e.target.closest('.sticker');
-    if (!node || drawDay) return;
+    if (!node || drawDay || soloLectura) return;
     e.preventDefault();
     if (!selected || selected.id !== node.dataset.id || selected.day !== node.dataset.day) {
       selectSticker(node.dataset.day, node.dataset.id);
@@ -1599,6 +2052,7 @@ function wireAll() {
     if (e.target.closest('.sticker')) return;   // los iconos se manejan aparte
     const cell = e.target.closest('.cell');
     if (!cell || drawDay) return;
+    if (soloVer()) return;
     const k = cell.dataset.day;
     const chip = e.target.closest('.chip');
     if (chip && e.target.closest('.st')) {
@@ -1625,6 +2079,7 @@ function wireAll() {
   function listClick(e) {
     const li = e.target.closest('.row');
     if (!li) return;
+    if (soloVer()) return;
     const kind = li.closest('#list-grocery') ? 'grocery' : 'todo';
     const arr = listOf(kind);
     const it = arr.filter((x) => x.id === li.dataset.id)[0];
@@ -1659,6 +2114,7 @@ function wireAll() {
   $$('.add-row').forEach((form) => {
     form.addEventListener('submit', (e) => {
       e.preventDefault();
+      if (soloVer()) return;
       const kind = form.dataset.add;
       const input = form.querySelector('input[type=text]');
       const qty = form.querySelector('input.qty');
@@ -1691,6 +2147,7 @@ function wireAll() {
   $('#day-new-text').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
+    if (soloVer()) return;
     const v = e.target.value.trim();
     if (!v || !editing) return;
     e.target.value = '';
@@ -1704,11 +2161,13 @@ function wireAll() {
   });
   $('#day-draw').addEventListener('click', () => {
     if (!editing) return;
-    if (drawDay === editing) stopDraw(); else startDraw(editing);
+    if (drawDay === editing) { stopDraw(); return; }
+    if (soloVer()) return;
+    startDraw(editing);
   });
   $('#day-clear-ink').addEventListener('click', () => clearInk(editing));
   $('#day-clear-all').addEventListener('click', () => {
-    if (!editing) return;
+    if (!editing || soloVer()) return;
     if (!window.confirm('Se vaciará este día (textos, iconos y dibujo). ¿Continuar?')) return;
     clearInk(editing);
     delete state.days[editing];
@@ -1719,7 +2178,7 @@ function wireAll() {
     toast('Día vaciado');
   });
   $('#day-items').addEventListener('click', (e) => {
-    if (!editing) return;
+    if (!editing || soloVer()) return;
     const chip = e.target.closest('.chip');
     if (!chip) return;
     const act = e.target.closest('[data-act]');
@@ -1818,6 +2277,7 @@ function wireAll() {
     if (e.key === 'Escape') {
       if (!$('#picker').hidden) { closePicker(); return; }
       if (!$('#data-modal').hidden) { $('#data-modal').hidden = true; return; }
+      if (!$('#panel').hidden) { cerrarPanel(); return; }
       if (drawDay) { stopDraw(); return; }
       if (editing) { closeEditor(); return; }
       if (selected) { clearSelection(); return; }
@@ -1854,6 +2314,71 @@ function wireAll() {
     if (e.key === 'ArrowLeft') goto(view.y, view.m - 1);
     if (e.key === 'ArrowRight') goto(view.y, view.m + 1);
   });
+
+  /* --- entrada, cuenta, panel y compartir --- */
+  $('#intro-link-cuenta').addEventListener('click', () => {
+    modoIntro = modoIntro === 'crear' ? 'entrar' : 'crear';
+    $('#intro-aviso').textContent = '';
+    abrirIntro();
+    if (modoIntro === 'crear') setTimeout(() => $('#in-alias').focus(), 40);
+  });
+  $('#intro-form').addEventListener('submit', enviarIntro);
+  $('#intro-olvido').addEventListener('click', async () => {
+    const correo = $('#in-correo').value.trim();
+    const aviso = $('#intro-aviso');
+    if (correo.indexOf('@') < 1) {
+      aviso.classList.remove('info');
+      aviso.textContent = 'Escribe tu correo arriba y vuelvo a intentarlo.';
+      return;
+    }
+    try {
+      await Nube.recuperar(correo);
+      aviso.classList.add('info');
+      aviso.textContent = 'Te he enviado un correo para cambiar la contraseña.';
+    } catch (err) {
+      aviso.textContent = Nube.mensaje(err);
+    }
+  });
+  $('#intro-local').addEventListener('click', () => {
+    miUid = ''; dueno = 'local'; soloLectura = false; mirandoA = null;
+    state = load();
+    $('#intro').hidden = true;
+    document.body.classList.remove('intro-abierto');
+    pintarCuenta(Nube.estado());
+    renderSheet(); updateHint(); storageInfo();
+    toast('Sin cuenta: el calendario vive solo en este equipo');
+  });
+
+  /* Cinco toques seguidos en el logo abren el panel oculto. */
+  let toques = 0, toquesTimer = 0;
+  $('.brand').addEventListener('click', () => {
+    toques++;
+    clearTimeout(toquesTimer);
+    toquesTimer = setTimeout(() => { toques = 0; }, 2500);
+    if (toques >= 5) { toques = 0; abrirPanel(); }
+  });
+  $('#panel-entrar').addEventListener('click', () => {
+    if ($('#panel-input').value !== Nube.clavePanel()) {
+      $('#panel-error').textContent = 'Clave incorrecta.';
+      return;
+    }
+    $('#panel-error').textContent = '';
+    $('#panel-clave').hidden = true;
+    $('#panel-datos').hidden = false;
+    cargarPanel();
+  });
+  $('#panel-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); $('#panel-entrar').click(); }
+  });
+  $$('#panel [data-close-panel]').forEach((b) => b.addEventListener('click', cerrarPanel));
+  $('#panel').addEventListener('click', (e) => { if (e.target === $('#panel')) cerrarPanel(); });
+  $('#panel-recargar').addEventListener('click', cargarPanel);
+  $('#panel-csv').addEventListener('click', csvPanel);
+
+  $('#btn-salir').addEventListener('click', salirApp);
+  $('#btn-panel').addEventListener('click', () => { $('#data-modal').hidden = true; abrirPanel(); });
+  $('#inv-btn').addEventListener('click', invitarDesdeFormulario);
+  $('#btn-volver-mio').addEventListener('click', volverAlMio);
 
   document.addEventListener('pointerdown', (e) => {
     /* Un clic fuera de un icono (o de su barra) lo deselecciona. */
@@ -1898,6 +2423,25 @@ function init() {
   renderSheet();
   updateHint();
   storageInfo();
+
+  /* --- cuentas y nube --- */
+  pintarCuenta(Nube.estado());
+  Nube.onCambio((e) => {
+    pintarCuenta(e);
+    /* En cuanto hay sesión (también al volver a abrir la app con la
+       sesión guardada) se carga el calendario de esa cuenta. */
+    if (e.usuario && !miUid) entrarApp(e.usuario).catch((err) => toast(Nube.mensaje(err)));
+  });
+  if (nubeLista()) {
+    Nube.init().catch((err) => toast(Nube.mensaje(err)));
+    /* Un instante de margen: si ya había sesión, no llega a verse la entrada. */
+    setTimeout(() => { if (!miUid && $('#intro').hidden) abrirIntro(); }, 700);
+  } else {
+    abrirIntro();
+  }
+
+  /* Contador de visitas (y la IP, si Firebase está configurado). */
+  Nube.registrarVisita('').catch(() => { /* no es crítico */ });
 
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     window.addEventListener('load', () => {

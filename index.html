@@ -41,7 +41,7 @@
         <select id="font-select" title="Tipografía manuscrita"></select>
       </label>
       <button id="btn-print" class="btn" type="button" title="Imprimir o guardar en PDF">Imprimir</button>
-      <button id="btn-data" class="btn" type="button" title="Copia de seguridad de tus datos">Datos</button>
+      <button id="btn-data" class="btn" type="button" title="Tus datos, tu cuenta y los calendarios compartidos">Datos</button>
       <button id="btn-install" class="btn btn-primary" type="button" hidden>Instalar app</button>
     </div>
   </header>
@@ -61,6 +61,11 @@
     <span class="nav-spacer"></span>
     <span id="nav-hint" class="hint">Haz clic en un día para escribir, o arrastra un icono hasta una fecha</span>
   </nav>
+
+  <div class="aviso-compartido" id="compartido-banner" hidden>
+    <span id="compartido-txt"></span>
+    <button class="btn btn-mini" id="btn-volver-mio" type="button">Volver a mi calendario</button>
+  </div>
 
   <main class="board">
     <section class="sheet" id="sheet" aria-label="Calendario del mes">
@@ -124,6 +129,124 @@
   <footer class="foot-note">
     Todo se guarda en este equipo. No se envía nada a internet.
   </footer>
+</div>
+
+<!-- Entrada: inscripción y acceso -->
+<div id="intro" class="intro" hidden>
+  <div class="intro-card" id="intro-card">
+    <header class="intro-head">
+      <svg viewBox="0 0 32 32" aria-hidden="true" class="brand-mark">
+        <rect x="3" y="6" width="26" height="23" rx="5" fill="#17512f"/>
+        <rect x="3" y="6" width="26" height="7" rx="3" fill="#2e7d4f"/>
+        <rect x="8" y="2" width="3.4" height="8" rx="1.7" fill="#f2c94c"/>
+        <rect x="20.6" y="2" width="3.4" height="8" rx="1.7" fill="#f2c94c"/>
+        <g fill="#fff" opacity=".92">
+          <rect x="7" y="17" width="4" height="3.4" rx="1"/>
+          <rect x="14" y="17" width="4" height="3.4" rx="1"/>
+          <rect x="21" y="17" width="4" height="3.4" rx="1"/>
+          <rect x="7" y="23" width="4" height="3.4" rx="1"/>
+          <rect x="14" y="23" width="4" height="3.4" rx="1"/>
+        </g>
+        <circle cx="23" cy="24.6" r="2.2" fill="#e04a3f"/>
+      </svg>
+      <p class="intro-hola">Bienvenido a</p>
+      <h1 class="intro-title">Calendario</h1>
+      <p class="intro-sub">Tu planificador de borrado en seco, en todos tus equipos.</p>
+    </header>
+
+    <form class="intro-form" id="intro-form" novalidate>
+      <label class="campo">
+        <span>Correo</span>
+        <input id="in-correo" type="email" autocomplete="email" placeholder="tu@correo.com">
+      </label>
+      <label class="campo">
+        <span>Contraseña</span>
+        <input id="in-clave" type="password" autocomplete="current-password" placeholder="mínimo 6 caracteres">
+      </label>
+
+      <div class="intro-registro" id="intro-registro" hidden>
+        <label class="campo">
+          <span>Alias</span>
+          <input id="in-alias" type="text" maxlength="24" autocomplete="nickname" placeholder="como te verán los demás">
+        </label>
+        <div class="intro-dos">
+          <label class="campo">
+            <span>Nombres</span>
+            <input id="in-nombres" type="text" autocomplete="given-name">
+          </label>
+          <label class="campo">
+            <span>Apellidos</span>
+            <input id="in-apellidos" type="text" autocomplete="family-name">
+          </label>
+        </div>
+        <label class="campo">
+          <span>Teléfono</span>
+          <input id="in-telefono" type="tel" autocomplete="tel" placeholder="+51 999 999 999">
+        </label>
+      </div>
+
+      <p class="intro-aviso" id="intro-aviso"></p>
+      <button class="btn btn-primary intro-btn" id="intro-btn" type="submit">Entrar</button>
+
+      <p class="intro-links">
+        <button class="link" id="intro-olvido" type="button">¿Olvidaste la contraseña?</button>
+        <span class="intro-sep" id="intro-sep-olvido">·</span>
+        <button class="link" id="intro-link-cuenta" type="button">Crear cuenta</button>
+      </p>
+      <button class="btn btn-mini intro-local" id="intro-local" type="button" hidden>Seguir sin cuenta en este equipo</button>
+    </form>
+
+    <p class="intro-pie" id="intro-pie">
+      La contraseña la guarda Firebase, nunca esta app. Tu teléfono no se comparte con nadie.
+    </p>
+  </div>
+</div>
+
+<!-- Panel oculto: cinco toques en el logo y la clave -->
+<div id="panel" class="overlay" hidden>
+  <div class="picker-panel panel-admin" role="dialog" aria-modal="true" aria-labelledby="panel-title">
+    <header class="picker-head">
+      <h2 id="panel-title">Panel</h2>
+      <button class="x" type="button" data-close-panel aria-label="Cerrar">×</button>
+    </header>
+    <div class="pop-body" id="panel-clave">
+      <p class="hint">Introduce la clave del panel.</p>
+      <div class="data-row">
+        <input type="password" id="panel-input" class="field-grow" placeholder="clave" autocomplete="off">
+        <button class="btn btn-primary" id="panel-entrar" type="button">Abrir</button>
+      </div>
+      <p class="hint aviso-rojo" id="panel-error"></p>
+    </div>
+    <div class="pop-body" id="panel-datos" hidden>
+      <div class="panel-cifras">
+        <div class="cifra">
+          <span class="cifra-n" id="panel-visitas">—</span>
+          <span class="cifra-l">visitas registradas</span>
+        </div>
+        <div class="cifra">
+          <span class="cifra-n" id="panel-equipo">0</span>
+          <span class="cifra-l">en este equipo</span>
+        </div>
+        <div class="cifra">
+          <span class="cifra-n" id="panel-usuarios">—</span>
+          <span class="cifra-l">usuarios</span>
+        </div>
+      </div>
+      <p class="hint" id="panel-aviso"></p>
+      <div class="tabla-wrap">
+        <table class="tabla-ip">
+          <thead>
+            <tr><th>IP</th><th>Lugar</th><th>Equipo</th><th>Cuándo</th></tr>
+          </thead>
+          <tbody id="panel-lista"></tbody>
+        </table>
+      </div>
+      <div class="data-row">
+        <button class="btn btn-mini" id="panel-recargar" type="button">Actualizar</button>
+        <button class="btn btn-mini" id="panel-csv" type="button">Descargar .csv</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Panel flotante para editar un día -->
@@ -207,6 +330,35 @@
         <button class="btn btn-danger" id="btn-reset" type="button">Borrar todo el calendario</button>
       </div>
       <p class="hint" id="storage-info"></p>
+      <hr>
+      <p class="field-lbl">Tu cuenta</p>
+      <p class="hint" id="cuenta-linea"></p>
+      <div class="data-row">
+        <button class="btn" id="btn-salir" type="button">Cerrar sesión</button>
+        <button class="btn" id="btn-panel" type="button" hidden>Abrir panel</button>
+      </div>
+      <hr>
+      <p class="field-lbl">Compartir mi calendario con…</p>
+      <div class="data-row">
+        <label class="field grow">
+          <span class="field-lbl">Alias o correo</span>
+          <input type="text" id="inv-buscar" placeholder="alguien@correo.com" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field-lbl">Permiso</span>
+          <select id="inv-rol">
+            <option value="ver">Solo ver</option>
+            <option value="editar">Puede editar</option>
+          </select>
+        </label>
+        <button class="btn btn-primary" id="inv-btn" type="button">Invitar</button>
+      </div>
+      <p class="hint" id="inv-aviso"></p>
+      <ul class="lista-compartidos" id="lista-invitados"></ul>
+      <hr>
+      <p class="field-lbl">Compartidos conmigo</p>
+      <p class="hint" id="comp-aviso"></p>
+      <ul class="lista-compartidos" id="lista-compartidos"></ul>
     </div>
   </div>
 </div>

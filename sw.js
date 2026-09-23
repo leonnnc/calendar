@@ -6,13 +6,14 @@
    IMPORTANTE: al tocar cualquier archivo de la app, subir VERSION.
    ============================================================ */
 
-const VERSION = 'calendario-v3';
+const VERSION = 'calendario-v10';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './css/app.css',
   './js/app.js',
+  './js/firebase.js',
   './js/stickers.js',
   './js/emoji.js',
   './assets/fonts/fonts.css',
@@ -67,6 +68,20 @@ self.addEventListener('fetch', (event) => {
       } catch (err) {
         const cache = await caches.open(VERSION);
         return (await cache.match('./index.html')) || (await cache.match('./')) || Response.error();
+      }
+    })());
+    return;
+  }
+
+  // La configuración de Firebase NO se cachea nunca: si se sirviera una
+  // copia vieja, pegar tus datos no surtiría efecto y parecería roto.
+  if (url.pathname.endsWith('/js/firebase-config.js')) {
+    event.respondWith((async () => {
+      try {
+        return await fetch(req);
+      } catch (err) {
+        const cache = await caches.open(VERSION);
+        return (await cache.match(req)) || Response.error();
       }
     })());
     return;
