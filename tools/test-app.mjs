@@ -294,6 +294,8 @@ ok(/indexOf\('PEGA_AQUI'\)/.test(fbjs),
   'La app sabe detectar que la configuración sigue sin rellenar');
 ok(/export const PANEL/.test(fbcfg) && /adminEmail/.test(fbcfg) && /clave:/.test(fbcfg),
   'La configuración incluye la clave y el correo del panel');
+ok(!/clave: '24681357'/.test(fbcfg) && /clave: '[^']{4,}'/.test(fbcfg),
+  'La clave del panel está puesta y no es la de ejemplo');
 ok(/export const AJUSTES/.test(fbcfg) && /entradaObligatoria/.test(fbcfg),
   'La configuración incluye si la entrada es obligatoria');
 

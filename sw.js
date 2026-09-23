@@ -78,7 +78,10 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.endsWith('/js/firebase-config.js')) {
     event.respondWith((async () => {
       try {
-        return await fetch(req);
+        /* no-store: GitHub Pages cachea sus archivos unos 10 minutos, y si no,
+           cambiar la clave del panel (o la configuración) tardaría en surtir
+           efecto y parecería que no funciona. */
+        return await fetch(req, { cache: 'no-store' });
       } catch (err) {
         const cache = await caches.open(VERSION);
         return (await cache.match(req)) || Response.error();

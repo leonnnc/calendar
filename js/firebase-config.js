@@ -40,7 +40,7 @@ export const PANEL = {
      Ojo: esto es una puerta discreta, no seguridad real (el código
      de una web es público). Lo que protege de verdad son las reglas
      de Firestore y la cuenta de administrador. */
-  clave: '24681357',
+  clave: 'Cal009570',
   /* Correo de la cuenta que puede ver la lista de IPs. Tiene que ser
      EL MISMO que pongas en firestore.rules (función esAdmin). */
   adminEmail: 'leonnnc@gmail.com',
